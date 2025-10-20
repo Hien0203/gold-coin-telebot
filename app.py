@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 telegram_app = ApplicationBuilder().token(TOKEN).build()
 
-URL_VANG = "https://btmc.vn/trang-vang"
+URL_VANG = "https://btmc.vn"
 URL_BINANCE = "https://api.binance.com/api/v3/ticker/price?symbol="
 
 scheduler = BackgroundScheduler()
