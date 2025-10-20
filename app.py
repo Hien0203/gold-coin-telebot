@@ -6,6 +6,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 import schedule
 import time
+import threading
 
 # Cấu hình logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -81,11 +82,11 @@ async def send_auto_vang(context: ContextTypes.DEFAULT_TYPE):
     logger.info("Đã gửi giá vàng tự động!")
 
 def run_scheduled_tasks(application):
-    # Lên lịch gửi giá vàng lúc 8h sáng (giờ địa phương)
-    schedule.every().day.at("08:00").do(
+    # Lên lịch gửi giá vàng lúc 8h sáng (UTC, điều chỉnh theo múi giờ VN là 15:00 UTC)
+    schedule.every().day.at("15:00").do(
         lambda: application.job_queue.run_once(send_auto_vang, when=0)
     )
-    logger.info("Đã lên lịch gửi tự động lúc 8h sáng")
+    logger.info("Đã lên lịch gửi tự động lúc 8h sáng (VN time)")
 
     # Vòng lặp chạy schedule
     while True:
@@ -104,11 +105,11 @@ def main():
 
     # Bắt đầu bot
     logger.info("Bot đang chạy...")
+    # Chạy polling trong thread chính
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
     # Chạy các tác vụ tự động trong thread riêng
-    import threading
-    threading.Thread(target=lambda: run_scheduled_tasks(application), daemon=True).start()
+    threading.Thread(target=run_scheduled_tasks, args=(application,), daemon=True).start()
 
 if __name__ == '__main__':
     main()
