@@ -24,7 +24,7 @@ if not BOT_TOKEN:
 if not CHAT_ID:
     raise ValueError("CHAT_ID chưa được thiết lập!")
 
-URL_VANG = "https://btmc.vn/trang-vang"
+URL_VANG = "https://btmc.vn"
 URL_BINANCE = "https://api.binance.com/api/v3/ticker/price?symbol="
 
 logging.basicConfig(level=logging.INFO)
@@ -70,7 +70,7 @@ def lay_gia_vang():
 # LẤY GIÁ COIN
 # ===============================================================
 def lay_gia_coin():
-    symbols = ["AVNTUSDT", "TREEUSDT", "ASTERUSDT", "SOMIUSDT", "AAUSDT", "AMPHAUSDT"]
+    symbols = ["AVNTUSDT", "TREEUSDT", "ASTERUSDT", "SOMIUSDT"]
     msg = "GIÁ COIN (Binance)\n\n"
     for sym in symbols:
         try:
