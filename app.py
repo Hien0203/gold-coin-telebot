@@ -82,7 +82,7 @@ async def send_auto_vang(context: ContextTypes.DEFAULT_TYPE):
     logger.info("Đã gửi giá vàng tự động!")
 
 def run_scheduled_tasks(application):
-    # Lên lịch gửi giá vàng lúc 8h sáng (UTC, điều chỉnh theo múi giờ VN là 15:00 UTC)
+    # Lên lịch gửi giá vàng lúc 8h sáng (UTC, điều chỉnh thành 15:00 UTC cho VN)
     schedule.every().day.at("15:00").do(
         lambda: application.job_queue.run_once(send_auto_vang, when=0)
     )
@@ -94,7 +94,7 @@ def run_scheduled_tasks(application):
         time.sleep(60)  # Kiểm tra mỗi phút
 
 def main():
-    # Khởi tạo application với polling
+    # Khởi tạo và chạy application với polling trực tiếp
     application = Application.builder().token(TOKEN).build()
 
     # Thêm handler
@@ -103,13 +103,17 @@ def main():
     application.add_handler(CommandHandler("gia", gia))
     application.add_handler(CommandHandler("coin", coin))
 
-    # Bắt đầu bot
+    # Bắt đầu bot với polling
     logger.info("Bot đang chạy...")
-    # Chạy polling trong thread chính
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Sử dụng run_polling trực tiếp thay vì build và khởi tạo Updater
+    application_thread = threading.Thread(target=application.run_polling, kwargs={"allowed_updates": Update.ALL_TYPES}, daemon=True)
+    application_thread.start()
 
     # Chạy các tác vụ tự động trong thread riêng
     threading.Thread(target=run_scheduled_tasks, args=(application,), daemon=True).start()
+
+    # Giữ main thread chạy để các thread con hoạt động
+    application_thread.join()
 
 if __name__ == '__main__':
     main()
