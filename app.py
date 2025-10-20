@@ -94,7 +94,7 @@ def run_scheduled_tasks(application):
         time.sleep(60)  # Kiểm tra mỗi phút
 
 def main():
-    # Khởi tạo và chạy application với polling trực tiếp
+    # Khởi tạo application trực tiếp
     application = Application.builder().token(TOKEN).build()
 
     # Thêm handler
@@ -103,17 +103,26 @@ def main():
     application.add_handler(CommandHandler("gia", gia))
     application.add_handler(CommandHandler("coin", coin))
 
-    # Bắt đầu bot với polling
+    # Bắt đầu bot với polling trong thread riêng
     logger.info("Bot đang chạy...")
-    # Sử dụng run_polling trực tiếp thay vì build và khởi tạo Updater
-    application_thread = threading.Thread(target=application.run_polling, kwargs={"allowed_updates": Update.ALL_TYPES}, daemon=True)
-    application_thread.start()
+    polling_thread = threading.Thread(
+        target=application.run_polling,
+        kwargs={"allowed_updates": Update.ALL_TYPES},
+        daemon=True
+    )
+    polling_thread.start()
 
     # Chạy các tác vụ tự động trong thread riêng
-    threading.Thread(target=run_scheduled_tasks, args=(application,), daemon=True).start()
+    scheduler_thread = threading.Thread(
+        target=run_scheduled_tasks,
+        args=(application,),
+        daemon=True
+    )
+    scheduler_thread.start()
 
     # Giữ main thread chạy để các thread con hoạt động
-    application_thread.join()
+    polling_thread.join()
+    scheduler_thread.join()
 
 if __name__ == '__main__':
     main()
