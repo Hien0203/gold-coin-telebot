@@ -10,7 +10,6 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import asyncio
 import nest_asyncio
 import datetime
-import threading
 
 # Áp dụng nest_asyncio
 nest_asyncio.apply()
@@ -31,14 +30,15 @@ logger = logging.getLogger(__name__)
 telegram_app = ApplicationBuilder().token(TOKEN).build()
 
 # URL
-URL_VANG = "https://btmc.vn/trang-vang"
+URL_VANG = "https://btmc.vn"
 URL_BINANCE = "https://api.binance.com/api/v3/ticker/price?symbol="
 
 # Scheduler
 scheduler = BackgroundScheduler()
 scheduler.start()
 
-# Biến kiểm soát khởi tạo
+# Biến toàn cục
+_main_loop = None
 _app_initialized = False
 
 # ===============================================================
@@ -133,20 +133,21 @@ async def gui_gia_vang_tu_dong():
 
 
 # ===============================================================
-# KHỞI TẠO ỨNG DỤNG TELEGRAM (BẮT BUỘC)
+# KHỞI TẠO TELEGRAM APP
 # ===============================================================
 async def initialize_telegram_app():
-    global _app_initialized
+    global _app_initialized, _main_loop
     if not _app_initialized:
-        logger.info("Đang khởi tạo Application...")
+        logger.info("Khởi tạo Application...")
         await telegram_app.initialize()
         await telegram_app.start()
+        _main_loop = asyncio.get_event_loop()
         _app_initialized = True
-        logger.info("Application đã được khởi tạo và khởi động!")
+        logger.info("Application đã sẵn sàng!")
 
 
 # ===============================================================
-# WEBHOOK ROUTE (ĐỒNG BỘ + THREAD)
+# WEBHOOK ROUTE (DÙNG LOOP TOÀN CỤC)
 # ===============================================================
 @app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
@@ -155,26 +156,28 @@ def webhook():
         text = data.get("message", {}).get("text", "unknown")
         logger.info(f"Webhook nhận lệnh: {text}")
 
-        def run_async_update():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                # Đảm bảo đã initialize
-                loop.run_until_complete(initialize_telegram_app())
-                update = Update.de_json(data, telegram_app.bot)
-                loop.run_until_complete(telegram_app.process_update(update))
-            except Exception as e:
-                logger.error(f"Lỗi xử lý update: {e}")
-            finally:
-                loop.close()
-
-        thread = threading.Thread(target=run_async_update)
-        thread.start()
+        # Tạo task trong main loop
+        if _main_loop and not _main_loop.is_closed():
+            asyncio.run_coroutine_threadsafe(
+                _process_update(data),
+                _main_loop
+            )
+        else:
+            logger.error("Main loop không khả dụng!")
 
         return "OK", 200
     except Exception as e:
         logger.error(f"Webhook lỗi: {e}")
         return "Error", 500
+
+
+async def _process_update(data):
+    """Xử lý update trong main loop"""
+    try:
+        update = Update.de_json(data, telegram_app.bot)
+        await telegram_app.process_update(update)
+    except Exception as e:
+        logger.error(f"Lỗi xử lý update: {e}")
 
 
 @app.route("/", methods=["GET"])
@@ -183,33 +186,26 @@ def index():
 
 
 # ===============================================================
-# THIẾT LẬP WEBHOOK & SCHEDULER
+# THIẾT LẬP BOT
 # ===============================================================
-def setup_bot():
-    logger.info("Đang thiết lập bot...")
-    try:
-        # Khởi tạo và thiết lập webhook
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(initialize_telegram_app())
+async def setup_bot_async():
+    await initialize_telegram_app()
 
-        # Xóa và thiết lập webhook
-        loop.run_until_complete(telegram_app.bot.delete_webhook(drop_pending_updates=True))
-        webhook_url = f"{DOMAIN}/{TOKEN}"
-        loop.run_until_complete(telegram_app.bot.set_webhook(url=webhook_url))
-        logger.info(f"Webhook đã được thiết lập: {webhook_url}")
+    # Xóa và thiết lập webhook
+    await telegram_app.bot.delete_webhook(drop_pending_updates=True)
+    webhook_url = f"{DOMAIN}/{TOKEN}"
+    await telegram_app.bot.set_webhook(url=webhook_url)
+    logger.info(f"Webhook đã được thiết lập: {webhook_url}")
 
-        # Lên lịch gửi tin 8h sáng
-        scheduler.add_job(
-            lambda: asyncio.run(gui_gia_vang_tu_dong()),
-            "cron",
-            hour=8,
-            minute=0,
-            timezone="Asia/Ho_Chi_Minh"
-        )
-        logger.info("Đã lên lịch gửi tin tự động 8:00 sáng (GMT+7)")
-
-    except Exception as e:
-        logger.error(f"Lỗi thiết lập bot: {e}")
+    # Lên lịch gửi tin
+    scheduler.add_job(
+        lambda: asyncio.run_coroutine_threadsafe(gui_gia_vang_tu_dong(), _main_loop),
+        "cron",
+        hour=8,
+        minute=0,
+        timezone="Asia/Ho_Chi_Minh"
+    )
+    logger.info("Đã lên lịch gửi tin 8:00 sáng")
 
 
 # ===============================================================
@@ -221,7 +217,8 @@ if __name__ == "__main__":
     telegram_app.add_handler(CommandHandler("coin", coin))
 
     # Thiết lập bot
-    setup_bot()
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(setup_bot_async())
 
     # Chạy Flask
     port = int(os.getenv("PORT", 5000))
