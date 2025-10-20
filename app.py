@@ -1,4 +1,4 @@
-# app.py - HOÀN CHỈNH, TỰ GỌI HANDLER
+# app.py - HOÀN CHỈNH, KHẮC PHỤC LỖI 'NoneType'
 import os
 import logging
 import requests
@@ -11,9 +11,13 @@ import asyncio
 import nest_asyncio
 import datetime
 import threading
+import time
 
 nest_asyncio.apply()
 
+# ===============================================================
+# CẤU HÌNH
+# ===============================================================
 TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = int(os.getenv("CHAT_ID"))
 DOMAIN = os.getenv("RENDER_EXTERNAL_URL")
@@ -22,7 +26,7 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-URL_VANG = "https://btmc.vn"
+URL_VANG = "https://btmc.vn/gia-vang"
 URL_BINANCE = "https://api.binance.com/api/v3/ticker/price?symbol="
 
 scheduler = BackgroundScheduler()
@@ -31,40 +35,49 @@ scheduler.start()
 _main_loop = None
 _bot = None
 
+# ===============================================================
+# LẤY DỮ LIỆU
+# ===============================================================
 def lay_gia_vang():
     try:
         res = requests.get(URL_VANG, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        if res.status_code != 200:
+            return "Trang BTMC đang bảo trì."
         soup = BeautifulSoup(res.text, "html.parser")
-        bang = soup.find("table", {"class": "table-price"})
+        bang = soup.find("table", {"class": "table-price"}) or soup.find("table")
         if not bang:
             return "Không tìm thấy bảng giá vàng."
         rows = bang.find_all("tr")[1:]
         result = []
         for row in rows:
             cols = row.find_all("td")
-            if len(cols) >= 4:
+            if len(cols) >= 3:
                 loai = cols[0].get_text(strip=True)
                 mua = cols[1].get_text(strip=True).replace(",", ".")
                 ban = cols[2].get_text(strip=True).replace(",", ".")
                 result.append(f"{loai}\nMua: {mua} | Bán: {ban}")
-        return "GIÁ VÀNG BTMC\n" + "\n\n".join(result)
+        return "GIÁ VÀNG BTMC\n" + "\n\n".join(result) if result else "Không có dữ liệu."
     except Exception as e:
-        logger.error(f"Lỗi vàng: {e}")
+        logger.error(f"Lỗi lấy vàng: {e}")
         return "Không thể lấy giá vàng."
 
 def lay_gia_coin():
     symbols = {"BTC": "BTCUSDT", "ETH": "ETHUSDT"}
-    msg = "GIÁ COIN (Test)\n\n"
+    msg = "GIÁ COIN (Binance)\n\n"
     for name, sym in symbols.items():
         try:
             res = requests.get(URL_BINANCE + sym, timeout=5)
             data = res.json()
             price = float(data["price"])
             msg += f"{name}: {price:,.2f} USDT\n"
-        except:
+        except Exception as e:
+            logger.error(f"Lỗi coin {name}: {e}")
             msg += f"{name}: Lỗi\n"
     return msg
 
+# ===============================================================
+# LỆNH
+# ===============================================================
 async def test(update: Update, context):
     try:
         logger.info("Gửi /test")
@@ -89,38 +102,64 @@ async def coin(update: Update, context):
         await update.message.reply_text("Lỗi hệ thống.")
 
 async def start(update: Update, context):
-    await update.message.reply_text("Chào mừng! Dùng /test, /gia, /coin")
+    await update.message.reply_text(
+        "Chào mừng đến với Gold & Coin Bot!\n\n"
+        "/test - Kiểm tra bot\n"
+        "/gia - Giá vàng BTMC\n"
+        "/coin - Giá BTC, ETH\n\n"
+        "Cập nhật tự động 8h sáng."
+    )
 
 async def gui_gia_vang_tu_dong():
     try:
         await _bot.send_message(chat_id=CHAT_ID, text=lay_gia_vang())
+        logger.info("Gửi giá vàng tự động thành công!")
     except Exception as e:
         logger.error(f"Lỗi tự động: {e}")
 
+# ===============================================================
+# KHỞI TẠO BOT
+# ===============================================================
 async def setup_bot_async():
     global _main_loop, _bot
     from telegram.ext import ApplicationBuilder
-    app = ApplicationBuilder().token(TOKEN).build()
-    await app.initialize()
-    await app.start()
-    _bot = app.bot
-    _main_loop = asyncio.get_running_loop()
+    application = ApplicationBuilder().token(TOKEN).build()
+    await application.initialize()
+    await application.start()
+    _bot = application.bot
+    _main_loop = asyncio.get_event_loop()
+    if not _main_loop.is_running():
+        asyncio.set_event_loop(_main_loop)
     
-    await app.bot.delete_webhook(drop_pending_updates=True)
-    await app.bot.set_webhook(url=f"{DOMAIN}/{TOKEN}")
+    await application.bot.delete_webhook(drop_pending_updates=True)
+    webhook_url = f"{DOMAIN}/{TOKEN}"
+    await application.bot.set_webhook(url=webhook_url)
+    logger.info(f"Webhook: {webhook_url}")
     
     scheduler.add_job(
         lambda: asyncio.run_coroutine_threadsafe(gui_gia_vang_tu_dong(), _main_loop),
         "cron", hour=8, minute=0, timezone="Asia/Ho_Chi_Minh"
     )
+    logger.info("Đã lên lịch gửi tự động 8h sáng")
 
+# ===============================================================
+# WEBHOOK – TỰ GỌI HANDLER
+# ===============================================================
 @app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
+    global _main_loop, _bot
     try:
         data = request.get_json(force=True)
         update = Update.de_json(data, _bot)
-        text = update.message.text.strip().lower() if update.message else ""
-        logger.info(f"Nhận: {text}")
+        if not update.message or not update.message.text:
+            return "OK", 200
+        
+        text = update.message.text.strip().lower()
+        logger.info(f"Nhận lệnh: {text}")
+        
+        if not _main_loop or not _bot:
+            logger.error("Bot hoặc loop chưa sẵn sàng")
+            return "Error: Bot initializing", 503
         
         if text == "/test":
             asyncio.run_coroutine_threadsafe(test(update, None), _main_loop)
@@ -138,6 +177,9 @@ def webhook():
 
 @app.route("/", methods=["GET"])
 def index():
-    return "Bot live!"
+    return "Bot đang chạy! Dùng /test để kiểm tra.", 200
 
-threading.Thread(target=lambda: asyncio.run(setup_bot_async()), daemon=True).start()
+# ===============================================================
+# KHỞI ĐỘNG
+# ===============================================================
+threading.Thread(target=lambda: [time.sleep(2), asyncio.run(setup_bot_async())], daemon=True).start()
