@@ -12,7 +12,7 @@ import nest_asyncio
 import datetime
 import threading
 
-# Áp dụng nest_asyncio để tránh lỗi event loop
+# Áp dụng nest_asyncio
 nest_asyncio.apply()
 
 # ===============================================================
@@ -37,6 +37,9 @@ URL_BINANCE = "https://api.binance.com/api/v3/ticker/price?symbol="
 # Scheduler
 scheduler = BackgroundScheduler()
 scheduler.start()
+
+# Biến kiểm soát khởi tạo
+_app_initialized = False
 
 # ===============================================================
 # LẤY GIÁ VÀNG
@@ -130,21 +133,34 @@ async def gui_gia_vang_tu_dong():
 
 
 # ===============================================================
-# WEBHOOK ROUTE (ĐỒNG BỘ - DÙNG THREAD)
+# KHỞI TẠO ỨNG DỤNG TELEGRAM (BẮT BUỘC)
+# ===============================================================
+async def initialize_telegram_app():
+    global _app_initialized
+    if not _app_initialized:
+        logger.info("Đang khởi tạo Application...")
+        await telegram_app.initialize()
+        await telegram_app.start()
+        _app_initialized = True
+        logger.info("Application đã được khởi tạo và khởi động!")
+
+
+# ===============================================================
+# WEBHOOK ROUTE (ĐỒNG BỘ + THREAD)
 # ===============================================================
 @app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
-    """Nhận update từ Telegram (đồng bộ, dùng thread để chạy async)"""
     try:
         data = request.get_json(force=True)
         text = data.get("message", {}).get("text", "unknown")
         logger.info(f"Webhook nhận lệnh: {text}")
 
-        # Chạy async trong thread riêng
         def run_async_update():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
+                # Đảm bảo đã initialize
+                loop.run_until_complete(initialize_telegram_app())
                 update = Update.de_json(data, telegram_app.bot)
                 loop.run_until_complete(telegram_app.process_update(update))
             except Exception as e:
@@ -167,17 +183,17 @@ def index():
 
 
 # ===============================================================
-# KHỞI TẠO WEBHOOK VÀ SCHEDULER
+# THIẾT LẬP WEBHOOK & SCHEDULER
 # ===============================================================
 def setup_bot():
-    logger.info("Đang thiết lập webhook...")
+    logger.info("Đang thiết lập bot...")
     try:
-        # Xóa webhook cũ
+        # Khởi tạo và thiết lập webhook
         loop = asyncio.get_event_loop()
-        loop.run_until_complete(telegram_app.bot.delete_webhook(drop_pending_updates=True))
-        logger.info("Đã xóa webhook cũ.")
+        loop.run_until_complete(initialize_telegram_app())
 
-        # Thiết lập webhook mới
+        # Xóa và thiết lập webhook
+        loop.run_until_complete(telegram_app.bot.delete_webhook(drop_pending_updates=True))
         webhook_url = f"{DOMAIN}/{TOKEN}"
         loop.run_until_complete(telegram_app.bot.set_webhook(url=webhook_url))
         logger.info(f"Webhook đã được thiết lập: {webhook_url}")
@@ -191,6 +207,7 @@ def setup_bot():
             timezone="Asia/Ho_Chi_Minh"
         )
         logger.info("Đã lên lịch gửi tin tự động 8:00 sáng (GMT+7)")
+
     except Exception as e:
         logger.error(f"Lỗi thiết lập bot: {e}")
 
@@ -203,7 +220,7 @@ if __name__ == "__main__":
     telegram_app.add_handler(CommandHandler("gia", gia))
     telegram_app.add_handler(CommandHandler("coin", coin))
 
-    # Thiết lập webhook và scheduler
+    # Thiết lập bot
     setup_bot()
 
     # Chạy Flask
