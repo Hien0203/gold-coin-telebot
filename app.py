@@ -19,7 +19,7 @@ CHAT_ID = os.getenv("CHAT_ID", "YOUR_CHAT_ID_HERE")    # Thay YOUR_CHAT_ID_HERE 
 # Lấy dữ liệu
 def lay_gia_vang():
     try:
-        res = requests.get("https://btmc.vn", headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        res = requests.get("https://btmc.vn/gia-vang", headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
         if res.status_code != 200:
             return "Trang BTMC đang bảo trì."
         soup = BeautifulSoup(res.text, "html.parser")
@@ -94,8 +94,8 @@ def run_scheduled_tasks(application):
         time.sleep(60)  # Kiểm tra mỗi phút
 
 def main():
-    # Khởi tạo application trực tiếp
-    application = Application.builder().token(TOKEN).build()
+    # Khởi tạo application trực tiếp với token
+    application = Application.builder().token(TOKEN).build()  # Lưu ý: Dùng build() nhưng sẽ chạy polling trực tiếp
 
     # Thêm handler
     application.add_handler(CommandHandler("start", start))
@@ -121,8 +121,12 @@ def main():
     scheduler_thread.start()
 
     # Giữ main thread chạy để các thread con hoạt động
-    polling_thread.join()
-    scheduler_thread.join()
+    try:
+        polling_thread.join()
+        scheduler_thread.join()
+    except KeyboardInterrupt:
+        logger.info("Dừng bot...")
+        application.stop()
 
 if __name__ == '__main__':
     main()
