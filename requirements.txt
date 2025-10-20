@@ -1,4 +1,8 @@
-python-telegram-bot==20.3
+python-telegram-bot
+beautifulsoup4
+requests
+apscheduler
+flask
 beautifulsoup4
 requests
 apscheduler
