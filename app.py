@@ -71,21 +71,20 @@ def lay_gia_coin():
 async def gia(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         msg = lay_gia_vang()
+        logger.info(f"Gửi /gia: {len(msg)} ký tự")
         await update.message.reply_text(msg)
     except Exception as e:
-        logger.error(f"Lỗi /gia: {e}")
-        await update.message.reply_text("Lỗi hệ thống.")
+        logger.error(f"Lỗi gửi /gia: {e}")
+        await update.message.reply_text("Lỗi: Không thể lấy giá vàng.")
 
 async def coin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         msg = lay_gia_coin()
+        logger.info(f"Gửi /coin: {len(msg)} ký tự")
         await update.message.reply_text(msg)
     except Exception as e:
-        logger.error(f"Lỗi /coin: {e}")
-        await update.message.reply_text("Lỗi hệ thống.")
-
-async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Bot hoạt động 100%!")
+        logger.error(f"Lỗi gửi /coin: {e}")
+        await update.message.reply_text("Lỗi: Không thể lấy giá coin.")
 
 async def gui_gia_vang_tu_dong():
     try:
@@ -119,6 +118,11 @@ def webhook():
     except Exception as e:
         logger.error(f"Webhook lỗi: {e}")
         return "Error", 500
+# === THÊM LỆNH /test ===
+async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info("Gửi lệnh /test")
+    await update.message.reply_text("Bot hoạt động 100%! Webhook OK!")
+
 
 @app.route("/", methods=["GET"])
 def index():
