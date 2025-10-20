@@ -4,10 +4,14 @@ import requests
 from bs4 import BeautifulSoup
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.schedulers.background import BackgroundScheduler
 import asyncio
 import datetime
 import logging
+import nest_asyncio
+
+# Áp dụng nest_asyncio để tránh lỗi event loop
+nest_asyncio.apply()
 
 # ===============================================================
 # CẤU HÌNH
@@ -50,8 +54,8 @@ def lay_gia_vang():
                 hamluong = cols[2].get_text(strip=True)
                 mua = cols[3].get_text(strip=True).replace(",", ".")
                 ban = cols[4].get_text(strip=True).replace(",", ".")
-                mua = mua if mua != "-" else "–"
-                ban = ban if ban != "-" else "–"
+                mua = mua if mua not in ["-", ""] else "–"
+                ban = ban if ban not in ["-", ""] else "–"
                 result.append(f"{loai}\nHàm lượng: {hamluong}\nMua: {mua} | Bán: {ban}")
 
         note = soup.find("p", class_="note")
@@ -75,7 +79,7 @@ def lay_gia_coin():
             price = float(data["price"])
             coin = sym.replace("USDT", "")
             msg += f"{coin}/USDT: {price:,.4f}\n"
-        except:
+        except Exception as e:
             msg += f"{sym.replace('USDT', '')}: Lỗi\n"
     return msg.strip()
 
@@ -94,18 +98,22 @@ async def coin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg)
 
 # ===============================================================
-# GỬI TỰ ĐỘNG 8:00 SÁNG
+# GỬI TỰ ĐỘNG (chạy trong thread riêng)
 # ===============================================================
-async def gui_gia_vang_tu_dong():
-    msg = lay_gia_vang()
-    today = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
-    text = f"Cập nhật giá vàng {today}\n\n{msg}"
+def gui_gia_vang_tu_dong_sync():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
-        from __main__ import app  # Lấy app từ main
-        await app.bot.send_message(chat_id=CHAT_ID, text=text)
+        msg = lay_gia_vang()
+        today = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+        text = f"Cập nhật giá vàng {today}\n\n{msg}"
+        # Gửi tin nhắn qua bot (cần truy cập app.bot)
+        loop.run_until_complete(app.bot.send_message(chat_id=CHAT_ID, text=text))
         logger.info("Đã gửi giá vàng tự động!")
     except Exception as e:
         logger.error(f"Lỗi gửi tin tự động: {e}")
+    finally:
+        loop.close()
 
 # ===============================================================
 # MAIN
@@ -117,13 +125,27 @@ async def main():
     app.add_handler(CommandHandler("gia", gia))
     app.add_handler(CommandHandler("coin", coin))
 
-    # Scheduler dùng AsyncIO
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(gui_gia_vang_tu_dong, "cron", hour=8, minute=0, timezone="Asia/Ho_Chi_Minh")
+    # Dùng BackgroundScheduler (thread riêng)
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(
+        gui_gia_vang_tu_dong_sync,
+        "cron",
+        hour=8,
+        minute=0,
+        timezone="Asia/Ho_Chi_Minh"
+    )
     scheduler.start()
 
     logger.info("Bot đang chạy... /gia | /coin")
     await app.run_polling()
 
+# ===============================================================
+# CHẠY CHƯƠNG TRÌNH
+# ===============================================================
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Bot đã dừng.")
+    except Exception as e:
+        logger.critical(f"Bot crash: {e}")
