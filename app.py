@@ -1,11 +1,11 @@
-# app.py - HOÀN CHỈNH, DÙNG context.bot
+# app.py - HOÀN CHỈNH, TỰ GỌI HANDLER
 import os
 import logging
 import requests
 from bs4 import BeautifulSoup
 from flask import Flask, request
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import ContextTypes
 from apscheduler.schedulers.background import BackgroundScheduler
 import asyncio
 import nest_asyncio
@@ -22,7 +22,6 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-telegram_app = ApplicationBuilder().token(TOKEN).build()
 URL_VANG = "https://btmc.vn"
 URL_BINANCE = "https://api.binance.com/api/v3/ticker/price?symbol="
 
@@ -30,7 +29,7 @@ scheduler = BackgroundScheduler()
 scheduler.start()
 
 _main_loop = None
-_app_initialized = False
+_bot = None
 
 def lay_gia_vang():
     try:
@@ -66,60 +65,72 @@ def lay_gia_coin():
             msg += f"{name}: Lỗi\n"
     return msg
 
-async def gia(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        msg = lay_gia_vang()
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
-    except Exception as e:
-        logger.error(f"Lỗi /gia: {e}")
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="Lỗi hệ thống.")
-
-async def coin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        msg = lay_gia_coin()
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
-    except Exception as e:
-        logger.error(f"Lỗi /coin: {e}")
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="Lỗi hệ thống.")
-
-async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def test(update: Update, context):
     try:
         logger.info("Gửi /test")
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="Bot hoạt động 100%! Webhook OK!"
-        )
+        await update.message.reply_text("Bot hoạt động 100%! Webhook OK!")
     except Exception as e:
-        logger.error(f"Lỗi gửi /test: {e}")
+        logger.error(f"Lỗi /test: {e}")
+
+async def gia(update: Update, context):
+    try:
+        msg = lay_gia_vang()
+        await update.message.reply_text(msg)
+    except Exception as e:
+        logger.error(f"Lỗi /gia: {e}")
+        await update.message.reply_text("Lỗi hệ thống.")
+
+async def coin(update: Update, context):
+    try:
+        msg = lay_gia_coin()
+        await update.message.reply_text(msg)
+    except Exception as e:
+        logger.error(f"Lỗi /coin: {e}")
+        await update.message.reply_text("Lỗi hệ thống.")
+
+async def start(update: Update, context):
+    await update.message.reply_text("Chào mừng! Dùng /test, /gia, /coin")
 
 async def gui_gia_vang_tu_dong():
     try:
-        await telegram_app.bot.send_message(chat_id=CHAT_ID, text=lay_gia_vang())
+        await _bot.send_message(chat_id=CHAT_ID, text=lay_gia_vang())
     except Exception as e:
         logger.error(f"Lỗi tự động: {e}")
 
-async def initialize_telegram_app():
-    global _app_initialized, _main_loop
-    if not _app_initialized:
-        await telegram_app.initialize()
-        await telegram_app.start()
-        _main_loop = asyncio.get_running_loop()
-        _app_initialized = True
-
-async def _process_update(data):
-    try:
-        update = Update.de_json(data, telegram_app.bot)
-        await telegram_app.process_update(update)
-    except Exception as e:
-        logger.error(f"Lỗi xử lý: {e}")
+async def setup_bot_async():
+    global _main_loop, _bot
+    from telegram.ext import ApplicationBuilder
+    app = ApplicationBuilder().token(TOKEN).build()
+    await app.initialize()
+    await app.start()
+    _bot = app.bot
+    _main_loop = asyncio.get_running_loop()
+    
+    await app.bot.delete_webhook(drop_pending_updates=True)
+    await app.bot.set_webhook(url=f"{DOMAIN}/{TOKEN}")
+    
+    scheduler.add_job(
+        lambda: asyncio.run_coroutine_threadsafe(gui_gia_vang_tu_dong(), _main_loop),
+        "cron", hour=8, minute=0, timezone="Asia/Ho_Chi_Minh"
+    )
 
 @app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
     try:
         data = request.get_json(force=True)
-        logger.info(f"Nhận: {data.get('message', {}).get('text')}")
-        if _main_loop:
-            asyncio.run_coroutine_threadsafe(_process_update(data), _main_loop)
+        update = Update.de_json(data, _bot)
+        text = update.message.text.strip().lower() if update.message else ""
+        logger.info(f"Nhận: {text}")
+        
+        if text == "/test":
+            asyncio.run_coroutine_threadsafe(test(update, None), _main_loop)
+        elif text == "/gia":
+            asyncio.run_coroutine_threadsafe(gia(update, None), _main_loop)
+        elif text == "/coin":
+            asyncio.run_coroutine_threadsafe(coin(update, None), _main_loop)
+        elif text == "/start":
+            asyncio.run_coroutine_threadsafe(start(update, None), _main_loop)
+        
         return "OK", 200
     except Exception as e:
         logger.error(f"Webhook lỗi: {e}")
@@ -128,18 +139,5 @@ def webhook():
 @app.route("/", methods=["GET"])
 def index():
     return "Bot live!"
-
-async def setup_bot_async():
-    await initialize_telegram_app()
-    await telegram_app.bot.delete_webhook(drop_pending_updates=True)
-    await telegram_app.bot.set_webhook(url=f"{DOMAIN}/{TOKEN}")
-    scheduler.add_job(
-        lambda: asyncio.run_coroutine_threadsafe(gui_gia_vang_tu_dong(), _main_loop),
-        "cron", hour=8, minute=0, timezone="Asia/Ho_Chi_Minh"
-    )
-
-telegram_app.add_handler(CommandHandler("gia", gia))
-telegram_app.add_handler(CommandHandler("coin", coin))
-telegram_app.add_handler(CommandHandler("test", test))
 
 threading.Thread(target=lambda: asyncio.run(setup_bot_async()), daemon=True).start()
