@@ -1,9 +1,6 @@
-python-telegram-bot
-beautifulsoup4
-requests
-apscheduler
-flask
+python-telegram-bot==20.3
 beautifulsoup4
 requests
 apscheduler
 nest_asyncio
+Flask
