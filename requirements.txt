@@ -1,7 +1,7 @@
-gunicorn
-python-telegram-bot==20.3
-beautifulsoup4
+python-telegram-bot==20.7
 requests
-apscheduler
-nest_asyncio
-Flask
+beautifulsoup4
+schedulepython-telegram-bot==20.7
+requests
+beautifulsoup4
+schedule
