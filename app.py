@@ -1,4 +1,4 @@
-# app.py - ĐÃ SỬA HOÀN CHỈNH
+# app.py - HOÀN CHỈNH, DÙNG context.bot
 import os
 import logging
 import requests
@@ -23,7 +23,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 telegram_app = ApplicationBuilder().token(TOKEN).build()
-URL_VANG = "https://btmc.vn/"
+URL_VANG = "https://btmc.vn"
 URL_BINANCE = "https://api.binance.com/api/v3/ticker/price?symbol="
 
 scheduler = BackgroundScheduler()
@@ -35,25 +35,23 @@ _app_initialized = False
 def lay_gia_vang():
     try:
         res = requests.get(URL_VANG, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-        if res.status_code != 200:
-            return "Warning: Trang BTMC đang bảo trì."
         soup = BeautifulSoup(res.text, "html.parser")
-        bang = soup.find("table", class_=lambda x: x and "price" in x.lower())
+        bang = soup.find("table", {"class": "table-price"})
         if not bang:
-            return "Warning: Không tìm thấy bảng giá vàng."
+            return "Không tìm thấy bảng giá vàng."
         rows = bang.find_all("tr")[1:]
         result = []
         for row in rows:
             cols = row.find_all("td")
-            if len(cols) >= 5:
-                loai = cols[1].get_text(" ", strip=True)
-                mua = cols[3].get_text(" ", strip=True).replace(",", ".")
-                ban = cols[4].get_text(" ", strip=True).replace(",", ".")
-                result.append(f"{loai}\nMua: {mua or '–'} | Bán: {ban or '–'}")
+            if len(cols) >= 4:
+                loai = cols[0].get_text(strip=True)
+                mua = cols[1].get_text(strip=True).replace(",", ".")
+                ban = cols[2].get_text(strip=True).replace(",", ".")
+                result.append(f"{loai}\nMua: {mua} | Bán: {ban}")
         return "GIÁ VÀNG BTMC\n" + "\n\n".join(result)
     except Exception as e:
-        logger.error(f"Lỗi lấy vàng: {e}")
-        return "Warning: Không thể lấy giá vàng."
+        logger.error(f"Lỗi vàng: {e}")
+        return "Không thể lấy giá vàng."
 
 def lay_gia_coin():
     symbols = {"BTC": "BTCUSDT", "ETH": "ETHUSDT"}
@@ -71,20 +69,28 @@ def lay_gia_coin():
 async def gia(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         msg = lay_gia_vang()
-        logger.info(f"Gửi /gia: {len(msg)} ký tự")
-        await update.message.reply_text(msg)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
     except Exception as e:
-        logger.error(f"Lỗi gửi /gia: {e}")
-        await update.message.reply_text("Lỗi: Không thể lấy giá vàng.")
+        logger.error(f"Lỗi /gia: {e}")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Lỗi hệ thống.")
 
 async def coin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         msg = lay_gia_coin()
-        logger.info(f"Gửi /coin: {len(msg)} ký tự")
-        await update.message.reply_text(msg)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
     except Exception as e:
-        logger.error(f"Lỗi gửi /coin: {e}")
-        await update.message.reply_text("Lỗi: Không thể lấy giá coin.")
+        logger.error(f"Lỗi /coin: {e}")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Lỗi hệ thống.")
+
+async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        logger.info("Gửi /test")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Bot hoạt động 100%! Webhook OK!"
+        )
+    except Exception as e:
+        logger.error(f"Lỗi gửi /test: {e}")
 
 async def gui_gia_vang_tu_dong():
     try:
@@ -118,11 +124,6 @@ def webhook():
     except Exception as e:
         logger.error(f"Webhook lỗi: {e}")
         return "Error", 500
-# === THÊM LỆNH /test ===
-async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info("Gửi lệnh /test")
-    await update.message.reply_text("Bot hoạt động 100%! Webhook OK!")
-
 
 @app.route("/", methods=["GET"])
 def index():
