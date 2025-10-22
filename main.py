@@ -16,6 +16,16 @@ logger = logging.getLogger(__name__)
 TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
+# Mapping of coin symbols to CoinGecko IDs
+COINGECKO_COIN_IDS = {
+    "BTC": "bitcoin",
+    "ETH": "ethereum",
+    "SOMI": None,  # Unknown; needs clarification
+    "AVNT": None,  # Unknown; needs clarification
+    "ASTER": None,  # Unknown; needs clarification
+    "TREE": None,  # Unknown; needs clarification
+}
+
 # Fetch gold prices from BTMC
 def lay_gia_vang():
     try:
@@ -46,20 +56,40 @@ def lay_gia_vang():
         logger.error(f"Lỗi lấy vàng: {e}")
         return "🚫 Không thể lấy giá vàng do lỗi hệ thống."
 
-# Fetch coin prices and 24-hour price change from Binance
+# Fetch coin prices and 24-hour price change from Binance or CoinGecko
 def lay_gia_coin(symbol):
+    # Try Binance first
     try:
         res = requests.get(f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}USDT", timeout=5)
         data = res.json()
-        if "code" in data and data["code"] != 200:
-            return f"🚫 Không tìm thấy cặp {symbol}/USDT trên Binance."
-        price = float(data["lastPrice"])
-        price_change_percent = float(data["priceChangePercent"])
-        percent_str = f"{'+' if price_change_percent >= 0 else ''}{price_change_percent:.2f}%"
-        return f"📈 {symbol}: {price:,.2f} USDT ({percent_str})"
+        if "code" not in data or data["code"] == 200:
+            price = float(data["lastPrice"])
+            price_change_percent = float(data["priceChangePercent"])
+            percent_str = f"{'+' if price_change_percent >= 0 else ''}{price_change_percent:.2f}%"
+            return f"📈 {symbol}: {price:,.2f} USDT ({percent_str})"
+        logger.info(f"Binance: Không tìm thấy cặp {symbol}/USDT, thử CoinGecko.")
     except Exception as e:
-        logger.error(f"Lỗi lấy giá {symbol}: {e}")
-        return f"🚫 Không tìm thấy giá cho {symbol} hoặc lỗi mạng."
+        logger.error(f"Lỗi lấy giá {symbol} từ Binance: {e}")
+
+    # Fall back to CoinGecko
+    coin_id = COINGECKO_COIN_IDS.get(symbol)
+    if not coin_id:
+        return f"🚫 Không tìm thấy cặp {symbol}/USDT trên Binance hoặc CoinGecko (coin ID không xác định)."
+    try:
+        res = requests.get(
+            f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd&include_24hr_change=true",
+            timeout=5
+        )
+        data = res.json()
+        if coin_id not in data or not data[coin_id]:
+            return f"🚫 Không tìm thấy giá cho {symbol} trên CoinGecko."
+        price = float(data[coin_id]["usd"])
+        price_change_percent = float(data[coin_id]["usd_24h_change"])
+        percent_str = f"{'+' if price_change_percent >= 0 else ''}{price_change_percent:.2f}%"
+        return f"📈 {symbol}: {price:,.2f} USD ({percent_str}) [CoinGecko]"
+    except Exception as e:
+        logger.error(f"Lỗi lấy giá {symbol} từ CoinGecko: {e}")
+        return f"🚫 Không tìm thấy giá cho {symbol} trên Binance hoặc CoinGecko."
 
 # Command handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -94,7 +124,7 @@ async def coin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            msg = "GIÁ COIN (Binance) 📈\n\n" + "\n\n".join([lay_gia_coin(sym) for sym in ["BTC", "ETH", "SOMI", "AVNT", "ASTER", "TREE"]])
+            msg = "GIÁ COIN (Binance/CoinGecko) 📈\n\n" + "\n\n".join([lay_gia_coin(sym) for sym in ["BTC", "ETH", "SOMI", "AVNT", "ASTER", "TREE"]])
             await update.message.reply_text(msg)
             break
         except NetworkError as e:
