@@ -95,7 +95,7 @@ def lay_gia_binance(symbol):
             price = float(data["lastPrice"])
             price_change_percent = float(data["priceChangePercent"])
             percent_str = f"{'+' if price_change_percent >= 0 else ''}{price_change_percent:.2f}%"
-            return f"📈 {symbol}: {price:,.2f} USDT ({percent_str})"
+            return f"📈 {symbol}: {price:,.5f} USDT ({percent_str})"
         return None
     except Exception as e:
         logger.error(f"Lỗi lấy giá {symbol} từ Binance: {e}")
@@ -127,7 +127,7 @@ def lay_gia_coingecko(symbol):
         price = float(data[coin_id]["usd"])
         price_change_percent = float(data[coin_id]["usd_24h_change"])
         percent_str = f"{'+' if price_change_percent >= 0 else ''}{price_change_percent:.2f}%"
-        return f"📈 {symbol}: {price:,.2f} USD ({percent_str}) [CoinGecko - Real-time]"
+        return f"📈 {symbol}: {price:,.5f} USD ({percent_str}) [CoinGecko - Real-time]"
     except Exception as e:
         logger.error(f"Lỗi lấy giá {symbol} từ CoinGecko: {e}")
         return f"🚫 Lỗi mạng, không thể lấy giá {symbol} từ CoinGecko."
