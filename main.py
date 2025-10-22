@@ -16,15 +16,45 @@ logger = logging.getLogger(__name__)
 TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-# Mapping of coin symbols to CoinGecko IDs
-COINGECKO_COIN_IDS = {
+# Cache for CoinGecko coin list (symbol -> ID mapping)
+COIN_LIST_CACHE = None
+
+# Static mapping (backup nếu cache chưa load)
+COINGECKO_COIN_IDS_STATIC = {
     "BTC": "bitcoin",
     "ETH": "ethereum",
-    "SOMI": None,  # Unknown; needs clarification
-    "AVNT": None,  # Unknown; needs clarification
-    "ASTER": None,  # Unknown; needs clarification
-    "TREE": None,  # Unknown; needs clarification
+    "BNB": "binancecoin",
+    "ADA": "cardano",
+    "SOL": "solana",
+    # SOMI, AVNT, ASTER, TREE cần tên đầy đủ để thêm
 }
+
+def load_coingecko_coin_list():
+    """Load and cache CoinGecko coin list once."""
+    global COIN_LIST_CACHE
+    if COIN_LIST_CACHE is not None:
+        return COIN_LIST_CACHE
+    
+    try:
+        logger.info("Đang load danh sách coin từ CoinGecko...")
+        res = requests.get("https://api.coingecko.com/api/v3/coins/list", timeout=10)
+        if res.status_code == 200:
+            coins = res.json()
+            cache = {}
+            for coin in coins:
+                symbol_lower = coin["symbol"].lower() if coin["symbol"] else ""
+                if symbol_lower:
+                    if symbol_lower not in cache:
+                        cache[symbol_lower] = coin["id"]
+            COIN_LIST_CACHE = cache
+            logger.info(f"Đã load {len(cache)} symbols từ CoinGecko.")
+            return cache
+        else:
+            logger.error(f"Lỗi load coin list: {res.status_code}")
+            return COINGECKO_COIN_IDS_STATIC
+    except Exception as e:
+        logger.error(f"Lỗi load coin list: {e}")
+        return COINGECKO_COIN_IDS_STATIC
 
 # Fetch gold prices from BTMC
 def lay_gia_vang():
@@ -56,9 +86,8 @@ def lay_gia_vang():
         logger.error(f"Lỗi lấy vàng: {e}")
         return "🚫 Không thể lấy giá vàng do lỗi hệ thống."
 
-# Fetch coin prices and 24-hour price change from Binance or CoinGecko
-def lay_gia_coin(symbol):
-    # Try Binance first
+# Fetch coin prices from Binance
+def lay_gia_binance(symbol):
     try:
         res = requests.get(f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}USDT", timeout=5)
         data = res.json()
@@ -67,14 +96,26 @@ def lay_gia_coin(symbol):
             price_change_percent = float(data["priceChangePercent"])
             percent_str = f"{'+' if price_change_percent >= 0 else ''}{price_change_percent:.2f}%"
             return f"📈 {symbol}: {price:,.2f} USDT ({percent_str})"
-        logger.info(f"Binance: Không tìm thấy cặp {symbol}/USDT, thử CoinGecko.")
+        return None
     except Exception as e:
         logger.error(f"Lỗi lấy giá {symbol} từ Binance: {e}")
+        return None
 
-    # Fall back to CoinGecko
-    coin_id = COINGECKO_COIN_IDS.get(symbol)
+# Fetch coin prices from CoinGecko
+def lay_gia_coingecko(symbol):
+    symbol_lower = symbol.lower()
+    
+    # Load cache nếu chưa có
+    coin_list = load_coingecko_coin_list()
+    
+    # Tìm coin ID từ cache hoặc static
+    coin_id = coin_list.get(symbol_lower)
     if not coin_id:
-        return f"🚫 Không tìm thấy cặp {symbol}/USDT trên Binance hoặc CoinGecko (coin ID không xác định)."
+        coin_id = COINGECKO_COIN_IDS_STATIC.get(symbol)
+    
+    if not coin_id:
+        return f"🚫 Không tìm thấy coin {symbol} trên CoinGecko. Vui lòng kiểm tra ký hiệu hoặc cung cấp tên đầy đủ (VD: 'Bitcoin' cho BTC)."
+    
     try:
         res = requests.get(
             f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd&include_24hr_change=true",
@@ -86,10 +127,19 @@ def lay_gia_coin(symbol):
         price = float(data[coin_id]["usd"])
         price_change_percent = float(data[coin_id]["usd_24h_change"])
         percent_str = f"{'+' if price_change_percent >= 0 else ''}{price_change_percent:.2f}%"
-        return f"📈 {symbol}: {price:,.2f} USD ({percent_str}) [CoinGecko]"
+        return f"📈 {symbol}: {price:,.2f} USD ({percent_str}) [CoinGecko - Real-time]"
     except Exception as e:
         logger.error(f"Lỗi lấy giá {symbol} từ CoinGecko: {e}")
-        return f"🚫 Không tìm thấy giá cho {symbol} trên Binance hoặc CoinGecko."
+        return f"🚫 Lỗi mạng, không thể lấy giá {symbol} từ CoinGecko."
+
+# Fetch coin prices with fallback (for /coin)
+def lay_gia_coin(symbol):
+    # Try Binance first
+    result = lay_gia_binance(symbol)
+    if result:
+        return result
+    logger.info(f"Binance không có {symbol}, thử CoinGecko.")
+    return lay_gia_coingecko(symbol)
 
 # Command handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -97,8 +147,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 Chào mừng đến với Gold & Coin Bot! Dùng các lệnh sau để tra cứu:\n"
         "- /test ✅ Kiểm tra bot\n"
         "- /vang 🪙 Giá vàng BTMC\n"
-        "- /coin 📈 Giá BTC, ETH, SOMI, AVNT, ASTER, TREE\n"
-        "- /tuchon <ký hiệu> 🔍 Tra giá coin tùy chọn (VD: /tuchon BTC)\n\n"
+        "- /coin 📈 Giá BTC, ETH, SOMI, AVNT, ASTER, TREE (Binance/CoinGecko)\n"
+        "- /tuchon <ký hiệu> 🔍 Tra giá coin (ưu tiên Binance, nếu không có thì CoinGecko) (VD: /tuchon BTC)\n\n"
         "📅 Bot tự động gửi giá vàng lúc 8h sáng (VN time)!"
     )
     await update.message.reply_text(message)
@@ -142,7 +192,14 @@ async def tuchon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            msg = lay_gia_coin(symbol)
+            # Thử Binance trước
+            result = lay_gia_binance(symbol)
+            if result:
+                await update.message.reply_text(result)
+                break
+            logger.info(f"Binance không có {symbol}, thử CoinGecko.")
+            # Fallback sang CoinGecko
+            msg = lay_gia_coingecko(symbol)
             await update.message.reply_text(msg)
             break
         except NetworkError as e:
@@ -150,7 +207,7 @@ async def tuchon(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if attempt < max_retries - 1:
                 await asyncio.sleep(2)
             else:
-                await update.message.reply_text("🚫 Lỗi mạng, không thể lấy dữ liệu coin.")
+                await update.message.reply_text("🚫 Lỗi mạng, không thể lấy giá coin.")
 
 # Scheduled task for sending gold prices
 async def send_auto_vang(context: ContextTypes.DEFAULT_TYPE):
@@ -169,6 +226,9 @@ async def send_auto_vang(context: ContextTypes.DEFAULT_TYPE):
                 logger.error("Không thể gửi sau nhiều lần thử.")
 
 def main():
+    # Load CoinGecko cache on startup
+    load_coingecko_coin_list()
+    
     # Initialize application
     application = Application.builder().token(TOKEN).build()
 
