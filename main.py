@@ -149,6 +149,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- /vang 🪙 Giá vàng BTMC\n"
         "- /coin 📈 Giá BTC, ETH, SOMI, AVNT, ASTER, TREE (Binance/CoinGecko)\n"
         "- /tuchon <ký hiệu> 🔍 Tra giá coin (ưu tiên Binance, nếu không có thì CoinGecko) (VD: /tuchon BTC)\n\n"
+        "- /stock <mã> 📊 Tra giá chứng khoán VN (VD: /stock MBB)\n\n"
         "📅 Bot tự động gửi giá vàng lúc 8h sáng (VN time)!"
     )
     await update.message.reply_text(message)
@@ -224,7 +225,50 @@ async def send_auto_vang(context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(2)
             else:
                 logger.error("Không thể gửi sau nhiều lần thử.")
-
+# Thêm hàm lấy giá cổ phiếu từ Simplize
+def lay_gia_chungkhoan(symbol):
+    try:
+        url = f"https://simplize.vn/co-phieu/{symbol}"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
+        res = requests.get(url, headers=headers, timeout=10)
+        if res.status_code != 200:
+            return f"🚫 Lỗi kết nối đến Simplize.vn cho {symbol}."
+        
+        soup = BeautifulSoup(res.text, "html.parser")
+        div = soup.find("div", class_="simplize-row simplize-row-middle")
+        if not div:
+            return f"🚫 Không tìm thấy dữ liệu giá cho {symbol}."
+        
+        price_elem = div.find("p", class_="css-19r22fg")
+        change_elem = div.find("p", class_="css-1ei6h64")
+        percent_elem = div.find("span", class_="css-fh5vtb")
+        
+        price = price_elem.get_text(strip=True) if price_elem else "N/A"
+        change = change_elem.get_text(strip=True) if change_elem else "N/A"
+        percent = percent_elem.get_text(strip=True) if percent_elem else "N/A"
+        
+        return f"📈 {symbol}: {price} ({change}) {percent}%"
+    except Exception as e:
+        logger.error(f"Lỗi lấy giá {symbol}: {e}")
+        return f"🚫 Không thể lấy giá cho {symbol} do lỗi hệ thống."
+# Thêm handler cho lệnh /stock
+async def stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("🔍 Vui lòng nhập mã chứng khoán (VD: /stock MBB).")
+        return
+    symbol = context.args[0].upper()
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            msg = lay_gia_chungkhoan(symbol)
+            await update.message.reply_text(msg)
+            break
+        except NetworkError as e:
+            logger.error(f"Lỗi mạng (lần {attempt + 1}): {e}")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2)
+            else:
+                await update.message.reply_text("🚫 Lỗi mạng, không thể lấy dữ liệu chứng khoán.")
 def main():
     # Load CoinGecko cache on startup
     load_coingecko_coin_list()
@@ -238,6 +282,7 @@ def main():
     application.add_handler(CommandHandler("vang", vang))
     application.add_handler(CommandHandler("coin", coin))
     application.add_handler(CommandHandler("tuchon", tuchon))
+    application.add_handler(CommandHandler("stock", stock))
 
     # Schedule daily gold price message at 8:00 AM VN time (15:00 UTC)
     application.job_queue.run_daily(
