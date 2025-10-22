@@ -4,20 +4,19 @@ import requests
 from bs4 import BeautifulSoup
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-import schedule
-import time
-import threading
-import asyncio
 from telegram.error import NetworkError
-# Cấu hình logging
+import asyncio
+from datetime import time
+
+# Configure logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Lấy token và CHAT_ID từ biến môi trường
-TOKEN = os.getenv("BOT_TOKEN", "8454443915:AAHkjDGRj8Jqm_w4sEnhELVhxNODnAnPKA8")  # Thay YOUR_BOT_TOKEN_HERE bằng token thật
-CHAT_ID = os.getenv("CHAT_ID", "1624322977")    # Thay YOUR_CHAT_ID_HERE bằng ID thật
+# Get token and CHAT_ID from environment variables
+TOKEN = os.getenv("BOT_TOKEN", "8454443915:AAHkjDGRj8Jqm_w4sEnhELVhxNODnAnPKA8")
+CHAT_ID = os.getenv("CHAT_ID", "1624322977")
 
-# Lấy dữ liệu giá vàng từ BTMC
+# Fetch gold prices from BTMC
 def lay_gia_vang():
     try:
         res = requests.get("https://btmc.vn", headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
@@ -27,15 +26,15 @@ def lay_gia_vang():
         bang = soup.find("table", {"class": "bd_price_home"})
         if not bang:
             return "Không tìm thấy bảng giá vàng."
-        rows = bang.find_all("tr")[1:]  # Bỏ qua header
+        rows = bang.find_all("tr")[1:]  # Skip header
         result = []
         for row in rows:
             cols = row.find_all("td")
             if not cols:
                 continue
-            # Xử lý rowspan
+            # Handle rowspan
             if cols[0].has_attr("rowspan"):
-                loai = cols[1].get_text(strip=True).split("\n")[0]  # Lấy tên loại vàng
+                loai = cols[1].get_text(strip=True).split("\n")[0]  # Get gold type
             else:
                 loai = cols[0].get_text(strip=True).split("\n")[0]
             ham_luong = cols[2].find("b").get_text(strip=True) if cols[2].find("b") else "N/A"
@@ -47,7 +46,7 @@ def lay_gia_vang():
         logger.error(f"Lỗi lấy vàng: {e}")
         return "Không thể lấy giá vàng."
 
-# Lấy giá coin từ Binance
+# Fetch coin prices from Binance
 def lay_gia_coin(symbol):
     try:
         res = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}USDT", timeout=5)
@@ -58,7 +57,7 @@ def lay_gia_coin(symbol):
         logger.error(f"Lỗi lấy giá {symbol}: {e}")
         return f"Không tìm thấy giá cho {symbol} hoặc lỗi mạng."
 
-# Handler cho các lệnh với retry
+# Command handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Chào mừng đến với Gold & Coin Bot!\n\n"
@@ -82,7 +81,7 @@ async def vang(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except NetworkError as e:
             logger.error(f"Lỗi mạng (lần {attempt + 1}): {e}")
             if attempt < max_retries - 1:
-                await asyncio.sleep(2)  # Chờ 2 giây trước khi thử lại
+                await asyncio.sleep(2)
             else:
                 await update.message.reply_text("Lỗi mạng, không thể lấy dữ liệu vàng.")
 
@@ -96,7 +95,7 @@ async def coin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except NetworkError as e:
             logger.error(f"Lỗi mạng (lần {attempt + 1}): {e}")
             if attempt < max_retries - 1:
-                await asyncio.sleep(2)  # Chờ 2 giây trước khi thử lại
+                await asyncio.sleep(2)
             else:
                 await update.message.reply_text("Lỗi mạng, không thể lấy dữ liệu coin.")
 
@@ -114,11 +113,11 @@ async def tuchon(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except NetworkError as e:
             logger.error(f"Lỗi mạng (lần {attempt + 1}): {e}")
             if attempt < max_retries - 1:
-                await asyncio.sleep(2)  # Chờ 2 giây trước khi thử lại
+                await asyncio.sleep(2)
             else:
                 await update.message.reply_text("Lỗi mạng, không thể lấy dữ liệu coin.")
 
-# Hàm gửi tự động với retry
+# Scheduled task for sending gold prices
 async def send_auto_vang(context: ContextTypes.DEFAULT_TYPE):
     max_retries = 3
     for attempt in range(max_retries):
@@ -130,66 +129,31 @@ async def send_auto_vang(context: ContextTypes.DEFAULT_TYPE):
         except NetworkError as e:
             logger.error(f"Lỗi mạng khi gửi tự động (lần {attempt + 1}): {e}")
             if attempt < max_retries - 1:
-                await asyncio.sleep(2)  # Chờ 2 giây trước khi thử lại
+                await asyncio.sleep(2)
             else:
                 logger.error("Không thể gửi sau nhiều lần thử.")
 
-def run_polling(application):
-    # Tạo và chạy event loop trong thread
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(application.run_polling(allowed_updates=Update.ALL_TYPES))
-    finally:
-        loop.close()
-
-def run_scheduled_tasks(application):
-    # Lên lịch gửi giá vàng lúc 8h sáng (UTC, điều chỉnh thành 15:00 UTC cho VN)
-    schedule.every().day.at("15:00").do(
-        lambda: asyncio.run(application.job_queue.run_once(send_auto_vang, when=0))
-    )
-    logger.info("Đã lên lịch gửi tự động lúc 8h sáng (VN time)")
-
-    # Vòng lặp chạy schedule
-    while True:
-        schedule.run_pending()
-        time.sleep(60)  # Kiểm tra mỗi phút
-
 def main():
-    # Khởi tạo application trực tiếp với token
+    # Initialize application
     application = Application.builder().token(TOKEN).build()
 
-    # Thêm handler
+    # Add command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("test", test))
-    application.add_handler(CommandHandler("vang", vang))  # Thay /gia thành /vang
+    application.add_handler(CommandHandler("vang", vang))
     application.add_handler(CommandHandler("coin", coin))
-    application.add_handler(CommandHandler("tuchon", tuchon))  # Thêm /tuchon
+    application.add_handler(CommandHandler("tuchon", tuchon))
 
-    # Bắt đầu bot với polling trong thread riêng
+    # Schedule daily gold price message at 8:00 AM VN time (15:00 UTC)
+    application.job_queue.run_daily(
+        send_auto_vang,
+        time(hour=15, minute=0),  # 15:00 UTC = 8:00 AM VN time
+        days=(0, 1, 2, 3, 4, 5, 6),  # Every day
+    )
+
+    # Start bot with polling in the main thread
     logger.info("Bot đang chạy...")
-    polling_thread = threading.Thread(
-        target=run_polling,
-        args=(application,),
-        daemon=True
-    )
-    polling_thread.start()
-
-    # Chạy các tác vụ tự động trong thread riêng
-    scheduler_thread = threading.Thread(
-        target=run_scheduled_tasks,
-        args=(application,),
-        daemon=True
-    )
-    scheduler_thread.start()
-
-    # Giữ main thread chạy để các thread con hoạt động
-    try:
-        polling_thread.join()
-        scheduler_thread.join()
-    except KeyboardInterrupt:
-        logger.info("Dừng bot...")
-        application.stop()
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
     main()
