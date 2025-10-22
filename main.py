@@ -13,8 +13,8 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # Get token and CHAT_ID from environment variables
-TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
+TOKEN = os.getenv("BOT_TOKEN", "8454443915:AAHkjDGRj8Jqm_w4sEnhELVhxNODnAnPKA8")
+CHAT_ID = os.getenv("CHAT_ID", "1624322977")
 
 # Escape special characters for MarkdownV2
 def escape_markdown_v2(text):
@@ -78,19 +78,19 @@ def lay_gia_coin(symbol):
 
 # Command handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = escape_markdown_v2("Chào mừng đến với Gold & Coin Bot! Dùng các lệnh sau để tra cứu:") + \
+              "\n- `/test` ✅ Kiểm tra bot\n" + \
+              "- `/vang` 🪙 Giá vàng BTMC\n" + \
+              "- `/coin` 📈 Giá BTC, ETH, SOMI, AVNT, ASTER, TREE\n" + \
+              "- `/tuchon <ký hiệu>` 🔍 Tra giá coin tùy chọn (VD: `/tuchon BTC`)\n\n" + \
+              escape_markdown_v2("Bot tự động gửi giá vàng lúc 8h sáng (VN time)!")
     await update.message.reply_text(
-        "👋 *Chào mừng đến với Gold & Coin Bot!* 🤖\n\n"
-        "Dùng các lệnh sau để tra cứu:\n"
-        "- `/test` ✅ Kiểm tra bot\n"
-        "- `/vang` 🪙 Giá vàng BTMC\n"
-        "- `/coin` 📈 Giá BTC, ETH, SOMI, AVNT, ASTER, TREE\n"
-        "- `/tuchon <ký hiệu>` 🔍 Tra giá coin tùy chọn (VD: `/tuchon BTC`)\n\n"
-        "📅 Bot tự động gửi giá vàng lúc *8h sáng* (VN time)!",
+        f"👋 *{message}*",
         parse_mode="MarkdownV2"
     )
 
 async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ *Bot hoạt động 100%!*", parse_mode="MarkdownV2")
+    await update.message.reply_text("✅ *Bot hoạt động 100\\%!*", parse_mode="MarkdownV2")
 
 async def vang(update: Update, context: ContextTypes.DEFAULT_TYPE):
     max_retries = 3
