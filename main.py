@@ -13,8 +13,8 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # Get token and CHAT_ID from environment variables
-TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
+TOKEN = os.getenv("BOT_TOKEN", "8454443915:AAHkjDGRj8Jqm_w4sEnhELVhxNODnAnPKA8")
+CHAT_ID = os.getenv("CHAT_ID", "1624322977")
 
 # Fetch gold prices from BTMC
 def lay_gia_vang():
@@ -46,13 +46,18 @@ def lay_gia_vang():
         logger.error(f"Lỗi lấy vàng: {e}")
         return "Không thể lấy giá vàng."
 
-# Fetch coin prices from Binance
+# Fetch coin prices and 24-hour price change from Binance
 def lay_gia_coin(symbol):
     try:
-        res = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}USDT", timeout=5)
+        res = requests.get(f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}USDT", timeout=5)
         data = res.json()
-        price = float(data["price"])
-        return f"Giá {symbol}: {price:,.2f} USDT"
+        if "code" in data and data["code"] != 200:
+            return f"Không tìm thấy cặp {symbol}/USDT trên Binance."
+        price = float(data["lastPrice"])
+        price_change_percent = float(data["priceChangePercent"])
+        # Format percentage with + or - and 2 decimal places
+        percent_str = f"{'+' if price_change_percent >= 0 else ''}{price_change_percent:.2f}%"
+        return f"Giá {symbol}: {price:,.2f} USDT ({percent_str})"
     except Exception as e:
         logger.error(f"Lỗi lấy giá {symbol}: {e}")
         return f"Không tìm thấy giá cho {symbol} hoặc lỗi mạng."
@@ -63,7 +68,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Chào mừng đến với Gold & Coin Bot!\n\n"
         "/test - Kiểm tra bot\n"
         "/vang - Giá vàng BTMC\n"
-        "/coin - Giá Coin\n"
+        "/coin - Giá BTC, ETH, SOMI, AVNT, ASTER, TREE\n"
         "/tuchon <ký hiệu> - Kiểm tra giá coin tùy chọn (VD: /tuchon BTC)\n"
         "Tự động gửi giá vàng lúc 8h sáng!"
     )
@@ -89,7 +94,7 @@ async def coin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            msg = "GIÁ COIN (Binance)\n\n" + "\n".join([lay_gia_coin(sym) for sym in ["BTC", "ETH","SOMI","AVNT","ASTER","TREE"]])
+            msg = "GIÁ COIN (Binance)\n\n" + "\n".join([lay_gia_coin(sym) for sym in ["BTC", "ETH", "SOMI", "AVNT", "ASTER", "TREE"]])
             await update.message.reply_text(msg)
             break
         except NetworkError as e:
