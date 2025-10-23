@@ -284,13 +284,24 @@ def main():
     application.add_handler(CommandHandler("tuchon", tuchon))
     application.add_handler(CommandHandler("stock", stock))
 
-    # Schedule daily gold price message at 8:00 AM VN time (15:00 UTC)
+    # --- Lên lịch gửi tự động 3 lần/ngày ---
     application.job_queue.run_daily(
         send_auto_vang,
-        time(hour=15, minute=0),  # 15:00 UTC = 8:00 AM VN time
-        days=(0, 1, 2, 3, 4, 5, 6),  # Every day
+        time(hour=1, minute=0),    # 08:00 VN (UTC+7)
+        days=(0, 1, 2, 3, 4, 5, 6),
     )
 
+    application.job_queue.run_daily(
+        send_auto_vang,
+        time(hour=8, minute=0),    # 15:00 VN
+        days=(0, 1, 2, 3, 4, 5, 6),
+    )
+
+    application.job_queue.run_daily(
+        send_auto_vang,
+        time(hour=13, minute=0),   # 20:00 VN
+        days=(0, 1, 2, 3, 4, 5, 6),
+    )
     # Start bot with polling in the main thread
     logger.info("Bot đang chạy...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
