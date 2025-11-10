@@ -8,7 +8,8 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from telegram.error import NetworkError
 from datetime import time
 from dotenv import load_dotenv
-import pytz  # <-- THÊM DÒNG NÀY
+import pytz  # THÊM DÒNG NÀY
+
 # === LOAD ENV ===
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
@@ -46,7 +47,7 @@ def load_coingecko_coin_list():
         logger.error(f"Lỗi load coin list: {e}")
     return COINGECKO_COIN_IDS_STATIC
 
-# === LẤY DỮ LIỆU (giữ nguyên) ===
+# === LẤY DỮ LIỆU ===
 def lay_gia_vang():
     try:
         res = requests.get("https://btmc.vn", headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
@@ -86,7 +87,7 @@ def lay_gia_coin(symbol):
         if coin_id in data:
             p = data[coin_id]["usd"]
             c = data[coin_id]["usd_24h_change"]
-            asyncio.run(asyncio.sleep(1.2))  # Rate limit
+            asyncio.run(asyncio.sleep(1.2))
             return f"{symbol}: {p:,.5f} USD ({'+' if c >= 0 else ''}{c:.2f}%) [CG]"
     except: pass
     return f"Lỗi giá {symbol}"
@@ -151,6 +152,7 @@ async def send_auto_vang(context):
     for _ in range(3):
         try:
             await context.bot.send_message(chat_id=CHAT_ID, text=lay_gia_vang())
+            logger.info("Gửi vàng tự động thành công.")
             return
         except NetworkError:
             await asyncio.sleep(2)
@@ -159,7 +161,6 @@ async def send_auto_vang(context):
 async def main():
     load_coingecko_coin_list()
 
-    # TẠO APPLICATION TRONG ASYNC → CÓ EVENT LOOP
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -169,11 +170,14 @@ async def main():
     app.add_handler(CommandHandler("tuchon", tuchon))
     app.add_handler(CommandHandler("stock", stock))
 
-    # LÊN LỊCH SAU KHI CÓ LOOP
+    # ĐẶT TIMEZONE CHO SCHEDULER
+    app.job_queue.scheduler.configure(timezone=pytz.timezone("Asia/Ho_Chi_Minh"))
+
+    # LÊN LỊCH
     app.job_queue.run_repeating(
         send_auto_vang,
         interval=5*3600,
-        first=time(hour=1, minute=0)  # 8h VN
+        first=time(hour=1, minute=0)  # 8h sáng VN
     )
 
     logger.info("Bot khởi động...")
@@ -181,4 +185,4 @@ async def main():
 
 # === CHẠY ===
 if __name__ == '__main__':
-    asyncio.run(main())  # <-- BẮT ĐẦU EVENT LOOP TRƯỚC
+    asyncio.run(main())
