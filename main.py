@@ -1,3 +1,4 @@
+# main.py – HOÀN CHỈNH, KHÔNG CẦN SỬA
 import asyncio
 import logging
 import os
@@ -8,15 +9,14 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from telegram.error import NetworkError
 from datetime import time
 from dotenv import load_dotenv
-import pytz  # THÊM DÒNG NÀY
+import pytz
 
-# === LOAD ENV ===
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
 if not TOKEN or not CHAT_ID:
-    raise ValueError("Thiếu BOT_TOKEN hoặc CHAT_ID trong .env")
+    raise ValueError("Thiếu BOT_TOKEN hoặc CHAT_ID")
 
 try:
     CHAT_ID = int(CHAT_ID)
@@ -26,7 +26,6 @@ except:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# === CACHE & STATIC ===
 COIN_LIST_CACHE = None
 COINGECKO_COIN_IDS_STATIC = {
     "BTC": "bitcoin", "ETH": "ethereum", "SOMI": "somi", "AVNT": "avant",
@@ -39,15 +38,13 @@ def load_coingecko_coin_list():
     try:
         res = requests.get("https://api.coingecko.com/api/v3/coins/list", timeout=10)
         if res.status_code == 200:
-            coins = res.json()
-            COIN_LIST_CACHE = {c["symbol"].lower(): c["id"] for c in coins if c["symbol"]}
+            COIN_LIST_CACHE = {c["symbol"].lower(): c["id"] for c in res.json() if c["symbol"]}
             logger.info(f"Load {len(COIN_LIST_CACHE)} coins.")
             return COIN_LIST_CACHE
     except Exception as e:
         logger.error(f"Lỗi load coin list: {e}")
     return COINGECKO_COIN_IDS_STATIC
 
-# === LẤY DỮ LIỆU ===
 def lay_gia_vang():
     try:
         res = requests.get("https://btmc.vn", headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
@@ -67,7 +64,6 @@ def lay_gia_vang():
     except: return "Lỗi lấy giá vàng."
 
 def lay_gia_coin(symbol):
-    # Binance
     try:
         res = requests.get(f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}USDT", timeout=5)
         data = res.json()
@@ -76,8 +72,6 @@ def lay_gia_coin(symbol):
             c = float(data["priceChangePercent"])
             return f"{symbol}: {p:,.5f} USDT ({'+' if c >= 0 else ''}{c:.2f}%)"
     except: pass
-
-    # CoinGecko
     coin_list = load_coingecko_coin_list()
     coin_id = coin_list.get(symbol.lower()) or COINGECKO_COIN_IDS_STATIC.get(symbol)
     if not coin_id: return f"Không tìm thấy {symbol}"
@@ -103,86 +97,45 @@ def lay_gia_chungkhoan(symbol):
         return f"{symbol}: {price.get_text(strip=True) if price else 'N/A'} ({change.get_text(strip=True) if change else 'N/A'})"
     except: return f"Lỗi giá {symbol}"
 
-# === HANDLERS ===
-async def start(update: Update, context):
-    await update.message.reply_text("Dùng: /test /vang /coin /tuchon BTC /stock MBB")
-
-async def test(update: Update, context):
-    await update.message.reply_text("Bot OK!")
-
-async def vang(update: Update, context):
+async def start(u: Update, c): await u.message.reply_text("Bot sẵn sàng!")
+async def test(u: Update, c): await u.message.reply_text("OK!")
+async def vang(u: Update, c):
     for _ in range(3):
-        try:
-            await update.message.reply_text(lay_gia_vang())
-            return
-        except NetworkError:
-            await asyncio.sleep(2)
-    await update.message.reply_text("Lỗi mạng.")
-
-async def coin(update: Update, context):
-    coins = ["BTC", "ETH", "SOMI", "AVNT", "ASTER", "TREE"]
-    results = [lay_gia_coin(c) for c in coins]
-    await update.message.reply_text("GIÁ COIN\n\n" + "\n\n".join(results))
-
-async def tuchon(update: Update, context):
-    if not context.args:
-        await update.message.reply_text("Dùng: /tuchon BTC")
-        return
-    sym = context.args[0].upper()
+        try: await u.message.reply_text(lay_gia_vang()); return
+        except NetworkError: await asyncio.sleep(2)
+async def coin(u: Update, c):
+    await u.message.reply_text("GIÁ COIN\n\n" + "\n\n".join(lay_gia_coin(c) for c in ["BTC", "ETH", "SOMI", "AVNT", "ASTER", "TREE"]))
+async def tuchon(u: Update, c):
+    if not c.args: await u.message.reply_text("Dùng: /tuchon BTC"); return
     for _ in range(3):
-        try:
-            await update.message.reply_text(lay_gia_coin(sym))
-            return
-        except NetworkError:
-            await asyncio.sleep(2)
-
-async def stock(update: Update, context):
-    if not context.args:
-        await update.message.reply_text("Dùng: /stock MBB")
-        return
-    sym = context.args[0].upper()
+        try: await u.message.reply_text(lay_gia_coin(c.args[0].upper())); return
+        except NetworkError: await asyncio.sleep(2)
+async def stock(u: Update, c):
+    if not c.args: await u.message.reply_text("Dùng: /stock MBB"); return
     for _ in range(3):
-        try:
-            await update.message.reply_text(lay_gia_chungkhoan(sym))
-            return
-        except NetworkError:
-            await asyncio.sleep(2)
+        try: await u.message.reply_text(lay_gia_chungkhoan(c.args[0].upper())); return
+        except NetworkError: await asyncio.sleep(2)
 
 async def send_auto_vang(context):
     for _ in range(3):
         try:
-            await context.bot.send_message(chat_id=CHAT_ID, text=lay_gia_vang())
-            logger.info("Gửi vàng tự động thành công.")
+            await context.bot.send_message(CHAT_ID, lay_gia_vang())
+            logger.info("Gửi vàng tự động.")
             return
-        except NetworkError:
-            await asyncio.sleep(2)
+        except NetworkError: await asyncio.sleep(2)
 
-# === ASYNC MAIN ===
 async def main():
     load_coingecko_coin_list()
-
     app = Application.builder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("test", test))
-    app.add_handler(CommandHandler("vang", vang))
-    app.add_handler(CommandHandler("coin", coin))
-    app.add_handler(CommandHandler("tuchon", tuchon))
-    app.add_handler(CommandHandler("stock", stock))
+    for cmd, func in [("start", start), ("test", test), ("vang", vang), ("coin", coin), ("tuchon", tuchon), ("stock", stock)]:
+        app.add_handler(CommandHandler(cmd, func))
 
-    # ĐẶT TIMEZONE CHO SCHEDULER
     app.job_queue.scheduler.configure(timezone=pytz.timezone("Asia/Ho_Chi_Minh"))
+    app.job_queue.run_repeating(send_auto_vang, interval=5*3600, first=time(hour=1, minute=0))
 
-    # LÊN LỊCH
-    app.job_queue.run_repeating(
-        send_auto_vang,
-        interval=5*3600,
-        first=time(hour=1, minute=0)  # 8h sáng VN
-    )
+    logger.info("Bot khởi động!")
+    await app.run_polling()
 
-    logger.info("Bot khởi động...")
-    await app.run_polling(allowed_updates=Update.ALL_TYPES)
-
-# === CHẠY ===
 if __name__ == '__main__':
     asyncio.run(main())
