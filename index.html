@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Giá vàng realtime</title>
+    <style>
+        body {
+            font-family: Arial;
+            background: #0f172a;
+            color: white;
+            text-align: center;
+            padding: 30px;
+        }
+        .card {
+            background: #1e293b;
+            padding: 20px;
+            margin: 15px auto;
+            border-radius: 12px;
+            width: 300px;
+            box-shadow: 0 0 10px #000;
+        }
+        h1 { color: gold; }
+    </style>
+</head>
+<body>
+
+<h1>💰 Giá vàng hôm nay</h1>
+
+<div class="card">
+    <h3>🌍 Thế giới</h3>
+    <p>{{ world }}</p>
+</div>
+
+<div class="card">
+    <h3>🏪 Hải Hồng</h3>
+    <p>{{ haihong }}</p>
+</div>
+
+<div class="card">
+    <h3>💎 Minh Châu</h3>
+    <p>{{ minhchau }}</p>
+</div>
+
+<div class="card">
+    <h3>🥈 Bạc</h3>
+    <p>{{ silver }}</p>
+</div>
+
+</body>
+</html>
