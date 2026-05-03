@@ -1,75 +1,89 @@
 import requests
-from bs4 import BeautifulSoup
 from flask import Flask, request
 import telebot
 import os
+import time
 
 TOKEN = os.getenv("BOT_TOKEN")
 bot = telebot.TeleBot(TOKEN)
 
 app = Flask(__name__)
 
-URL = "https://giavanglive.com/"
 # ================== API ==================
 API_WORLD = "https://giavanglive.com/api/get_gold_price_v2.php"
 API_HAIHONG = "https://giavanglive.com/api/scrape_haihong.php"
 API_MINHCHAU = "https://giavanglive.com/api/scrape_minhchau.php"
 API_SILVER = "https://giavanglive.com/api/scrape_giabac.php"
+
+# ================== REQUEST HELPER ==================
+def fetch_api(url):
+    try:
+        full_url = f"{url}?t={int(time.time()*1000)}"
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Referer": "https://giavanglive.com/",
+            "Accept": "application/json"
+        }
+
+        res = requests.get(full_url, headers=headers, timeout=10)
+
+        if res.status_code != 200:
+            print("HTTP ERROR:", res.status_code)
+            return None
+
+        return res.json()
+
+    except Exception as e:
+        print("FETCH ERROR:", e)
+        return None
+
 # ================== FUNCTIONS ==================
 def get_gold_world():
-    try:
-        res = requests.get(API_WORLD, timeout=10)
-        data = res.json()
-
-        return f"""🌍 Giá vàng thế giới:
-💰 {data.get("price", "N/A")} USD
-📉 {data.get("change", "")} ({data.get("percent", "")})"""
-    except:
+    data = fetch_api(API_WORLD)
+    if not data:
         return "❌ Lỗi vàng thế giới"
 
+    return f"""🌍 Giá vàng thế giới:
+💰 {data.get("price", "N/A")} USD
+📉 {data.get("change", "")} ({data.get("percent", "")})"""
 
 def get_haihong():
-    try:
-        res = requests.get(API_HAIHONG, timeout=10)
-        data = res.json()
-        item = data[0]
-
-        return f"""🏪 Hải Hồng:
-{item['name']}
-Mua: {item['buy']}
-Bán: {item['sell']}"""
-    except:
+    data = fetch_api(API_HAIHONG)
+    if not data or len(data) == 0:
         return "❌ Lỗi Hải Hồng"
 
+    item = data[0]
+
+    return f"""🏪 Hải Hồng:
+{item.get('name')}
+Mua: {item.get('buy')}
+Bán: {item.get('sell')}"""
 
 def get_minhchau():
-    try:
-        res = requests.get(API_MINHCHAU, timeout=10)
-        data = res.json()
-        item = data[0]
-
-        return f"""💎 Minh Châu:
-{item['name']}
-Mua: {item['buy']}
-Bán: {item['sell']}"""
-    except:
+    data = fetch_api(API_MINHCHAU)
+    if not data or len(data) == 0:
         return "❌ Lỗi Minh Châu"
 
+    item = data[0]
+
+    return f"""💎 Minh Châu:
+{item.get('name')}
+Mua: {item.get('buy')}
+Bán: {item.get('sell')}"""
 
 def get_silver():
-    try:
-        res = requests.get(API_SILVER, timeout=10)
-        data = res.json()
-        item = data[0]
-
-        return f"""🥈 Bạc:
-{item['name']}
-Mua: {item['buy']}
-Bán: {item['sell']}"""
-    except:
+    data = fetch_api(API_SILVER)
+    if not data or len(data) == 0:
         return "❌ Lỗi bạc"
 
+    item = data[0]
 
+    return f"""🥈 Bạc:
+{item.get('name')}
+Mua: {item.get('buy')}
+Bán: {item.get('sell')}"""
+
+# ================== TELEGRAM ==================
 @bot.message_handler(commands=["start"])
 def start(message):
     bot.reply_to(message, "👋 Gõ /gold để xem giá vàng")
@@ -85,12 +99,11 @@ def gold(message):
 
     bot.reply_to(message, msg)
 
-
+# ================== FLASK ==================
 @app.route("/")
 def home():
     return "Bot is running!"
 
-# ✅ webhook đúng
 @app.route("/webhook", methods=["POST"])
 def webhook():
     json_str = request.get_data().decode("utf-8")
@@ -98,7 +111,11 @@ def webhook():
     bot.process_new_updates([update])
     return "OK", 200
 
+# ================== MAIN ==================
 if __name__ == "__main__":
     bot.remove_webhook()
-    bot.set_webhook(url="https://gold-coin-telebot.onrender.com/webhook")
+    bot.set_webhook(
+        url="https://gold-coin-telebot.onrender.com/webhook"
+    )
+
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
