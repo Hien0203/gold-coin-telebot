@@ -1,5 +1,4 @@
-python-telegram-bot==20.8
-beautifulsoup4
+flask
+pyTelegramBotAPI
 requests
-python-dotenv
-pytz
+beautifulsoup4
