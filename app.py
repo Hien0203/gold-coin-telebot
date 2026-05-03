@@ -3,7 +3,7 @@ from flask import Flask, request
 import telebot
 import os
 import time
-
+from flask import render_template
 # ================== CONFIG ==================
 TOKEN = os.getenv("BOT_TOKEN")
 bot = telebot.TeleBot(TOKEN)
@@ -128,7 +128,13 @@ def gold(message):
 # ================== FLASK ==================
 @app.route("/")
 def home():
-    return "Bot is running!"
+    return render_template(
+        "index.html",
+        world=get_gold_world(),
+        haihong=get_haihong(),
+        minhchau=get_minhchau(),
+        silver=get_silver()
+    )
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
