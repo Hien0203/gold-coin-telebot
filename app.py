@@ -43,21 +43,27 @@ def get_gold_world():
     if not data:
         return "❌ Lỗi vàng thế giới"
 
+    d = data.get("data", {})
+
     return f"""🌍 Giá vàng thế giới:
-💰 {data.get("price", "N/A")} USD
-📉 {data.get("change", "")} ({data.get("percent", "")})"""
+💰 {d.get("price", "N/A")} USD
+📉 {d.get("change", "")} ({d.get("percent", "")}%)"""
 
 def get_haihong():
     data = fetch_api(API_HAIHONG)
-    if not data or len(data) == 0:
+    if not data:
         return "❌ Lỗi Hải Hồng"
 
-    item = data[0]
+    items = data.get("data", [])
+    if not items:
+        return "❌ Không có dữ liệu"
+
+    item = items[0]
 
     return f"""🏪 Hải Hồng:
 {item.get('name')}
-Mua: {item.get('buy')}
-Bán: {item.get('sell')}"""
+Mua: {item.get('buy_raw')}
+Bán: {item.get('sell_raw')}"""
 
 def get_minhchau():
     data = fetch_api(API_MINHCHAU)
