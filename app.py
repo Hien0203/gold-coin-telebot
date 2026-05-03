@@ -1,5 +1,5 @@
 import requests
-from flask import Flask, request
+from flask import Flask, request, send_file
 import telebot
 import os
 import time
@@ -128,7 +128,7 @@ def gold(message):
 # ================== FLASK ==================
 @app.route("/")
 def home():
-    return render_template(
+    return send_file(
         "index.html",
         world=get_gold_world(),
         haihong=get_haihong(),
