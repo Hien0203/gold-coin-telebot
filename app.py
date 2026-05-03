@@ -126,16 +126,32 @@ def gold(message):
         bot.reply_to(message, "❌ Lỗi xử lý dữ liệu")
 
 # ================== FLASK ==================
+# @app.route("/")
+# def home():
+#     return send_file(
+#         "index.html",
+#         world=get_gold_world(),
+#         haihong=get_haihong(),
+#         minhchau=get_minhchau(),
+#         silver=get_silver()
+#     )
+from flask import Response
+import os
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 @app.route("/")
 def home():
-    return send_file(
-        "index.html",
-        world=get_gold_world(),
-        haihong=get_haihong(),
-        minhchau=get_minhchau(),
-        silver=get_silver()
-    )
+    with open(os.path.join(BASE_DIR, "index.html"), encoding="utf-8") as f:
+        html = f.read()
 
+    # replace dữ liệu vào HTML
+    html = html.replace("{{world}}", get_gold_world())
+    html = html.replace("{{haihong}}", get_haihong())
+    html = html.replace("{{minhchau}}", get_minhchau())
+    html = html.replace("{{silver}}", get_silver())
+
+    return Response(html, mimetype="text/html")
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
