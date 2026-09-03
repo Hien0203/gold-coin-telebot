@@ -225,7 +225,8 @@ def home():
     html = html.replace("{{haihong}}", get_haihong())
     html = html.replace("{{minhchau}}", get_minhchau())
     html = html.replace("{{silver}}", get_silver())
-
+    mbb_data = get_stock_price("MBB").replace("\n", "<br>")
+    html = html.replace("{{MBB}}", mbb_data)
     return Response(html, mimetype="text/html")
 
 @app.route("/webhook", methods=["POST"])
