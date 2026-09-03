@@ -173,9 +173,12 @@
 #     )
 
 #     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
+import datetime
 import os
 import time
 import requests
+from bs4 import BeautifulSoup
 from flask import Flask, Response, request
 import telebot
 
@@ -274,47 +277,81 @@ def get_silver():
 Mua: {item.get('buy')}
 Bán: {item.get('sell')}"""
 
+def parse_vietstock_html(html_content: str):
+    """Hàm bóc tách trực tiếp từ cấu trúc HTML TradingView của Vietstock nếu cào HTML"""
+    soup = BeautifulSoup(html_content, "html.parser")
+    data = {}
+    items = soup.find_all("div", class_=lambda c: c and "valueItem" in c)
+    for item in items:
+        title_tag = item.find("div", class_=lambda c: c and "valueTitle" in c)
+        val_tag = item.find("div", class_=lambda c: c and "valueValue" in c)
+        
+        t = title_tag.text.strip() if title_tag else ""
+        v = val_tag.text.strip() if val_tag else ""
+        
+        if t in ["O", "H", "L", "C", "Khối lượng"]:
+            data[t] = v
+        elif not t and ("+" in v or "-" in v or "%" in v):
+            data["change"] = v
+    return data
+
 def get_stock_price(symbol: str):
-    """Tra cứu giá cổ phiếu thị trường Việt Nam (SSI iBoard API)"""
+    """Lấy dữ liệu nến OHLC & Khối lượng trực tiếp từ nguồn API của stockchart.vietstock.vn"""
     try:
         symbol = symbol.strip().upper()
-        url = f"https://iboard-query.ssi.com.vn/stock/stock-detail?stockSymbol={symbol}"
+        now_ts = int(time.time())
+        from_ts = now_ts - (30 * 86400) # Lấy dữ liệu 30 ngày gần nhất
+        
+        url = f"https://stockchart.vietstock.vn/TradingView/history?symbol={symbol}&resolution=D&from={from_ts}&to={now_ts}"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-            "Accept": "application/json",
-            "Referer": "https://iboard.ssi.com.vn/"
+            "Referer": f"https://stockchart.vietstock.vn/?StockCode={symbol}",
+            "Accept": "application/json"
         }
+        
         res = requests.get(url, headers=headers, timeout=10)
         
         if res.status_code != 200:
-            return f"❌ Không tìm thấy thông tin mã cổ phiếu `{symbol}`."
+            return f"❌ Không thể kết nối tới Vietstock ({symbol})."
             
         json_data = res.json()
-        data = json_data.get("data", {})
-        if not data:
-            return f"❌ Không tìm thấy thông tin mã cổ phiếu `{symbol}`."
+        
+        if json_data.get("s") != "ok" or not json_data.get("c"):
+            return f"❌ Không tìm thấy mã `{symbol}` trên Vietstock."
 
-        # Trích xuất dữ liệu
-        stock_name = data.get("ss", symbol)
-        current_price = data.get("cp", 0)        # Giá hiện tại (nghìn đồng)
-        ref_price = data.get("ref", 0)           # Giá tham chiếu
-        ceil_price = data.get("ceil", 0)         # Giá trần
-        floor_price = data.get("fl", 0)          # Giá sàn
-        change = data.get("ch", 0)               # Biến động tuyệt đối
-        percent = data.get("chp", 0)             # Biến động %
-        volume = data.get("vol", 0)              # Khối lượng giao dịch
+        # Lấy phiên nến gần nhất
+        c_list = json_data.get("c", [])
+        o_list = json_data.get("o", [])
+        h_list = json_data.get("h", [])
+        l_list = json_data.get("l", [])
+        v_list = json_data.get("v", [])
 
-        icon = "🟢" if change > 0 else ("🔴" if change < 0 else "🟡")
+        close_p = c_list[-1]
+        open_p = o_list[-1]
+        high_p = h_list[-1]
+        low_p = l_list[-1]
+        vol = v_list[-1]
+
+        # Tính toán biến động so với phiên trước
+        if len(c_list) >= 2:
+            prev_close = c_list[-2]
+            change = close_p - prev_close
+            percent = (change / prev_close) * 100
+        else:
+            change = close_p - open_p
+            percent = (change / open_p) * 100 if open_p else 0
+
         sign = "+" if change > 0 else ""
+        icon = "🟢" if change > 0 else ("🔴" if change < 0 else "🟡")
 
-        return f"""📈 Cổ phiếu: {stock_name}
-💵 Giá khớp: {current_price:,.2f} VNĐ ({icon} {sign}{change:,.2f} | {sign}{percent:.2f}%)
-📊 Khối lượng: {volume:,.0f} CP
-🏷 Trần/Sàn/TC: {ceil_price:,.2f} / {floor_price:,.2f} / {ref_price:,.2f}"""
+        return f"""📈 Vietstock Chart: {symbol}
+💰 C (Đóng cửa): {close_p:,.2f} ({icon} {sign}{change:,.2f} | {sign}{percent:.2f}%)
+📊 O: {open_p:,.2f} | H: {high_p:,.2f} | L: {low_p:,.2f}
+📦 Khối lượng: {vol:,.0f} CP"""
 
     except Exception as e:
-        print("STOCK FETCH ERROR:", e)
-        return f"❌ Lỗi khi lấy dữ liệu cổ phiếu `{symbol}`."
+        print("VIETSTOCK FETCH ERROR:", e)
+        return f"❌ Lỗi khi tải dữ liệu `{symbol}` từ Vietstock."
 
 # ================== TELEGRAM ==================
 @bot.message_handler(commands=["start"])
@@ -323,7 +360,7 @@ def start(message):
         message, 
         "👋 Chào bạn!\n"
         "- Gõ /gold để xem giá vàng & bạc\n"
-        "- Gõ /token <mã> hoặc /stock <mã> để xem giá cổ phiếu (Ví dụ: /token mbb)"
+        "- Gõ /token <mã> hoặc /stock <mã> để xem chart Vietstock (Ví dụ: /token mbb)"
     )
 
 @bot.message_handler(commands=["gold"])
@@ -354,7 +391,7 @@ def stock(message):
         return
 
     symbol = parts[1]
-    msg = bot.reply_to(message, f"⏳ Đang tra cứu mã `{symbol.upper()}`...", parse_mode="Markdown")
+    msg = bot.reply_to(message, f"⏳ Đang lấy dữ liệu `{symbol.upper()}` từ Vietstock...", parse_mode="Markdown")
 
     result = get_stock_price(symbol)
     bot.edit_message_text(
@@ -371,7 +408,6 @@ def home():
     with open(os.path.join(BASE_DIR, "index.html"), encoding="utf-8") as f:
         html = f.read()
 
-    # replace dữ liệu vào HTML
     html = html.replace("{{world}}", get_gold_world())
     html = html.replace("{{haihong}}", get_haihong())
     html = html.replace("{{minhchau}}", get_minhchau())
