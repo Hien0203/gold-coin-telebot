@@ -258,7 +258,7 @@ bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
 URL_HAIHONG = "https://giavanghaihong.com/"
-URL_MINHCHAU = "https://btmc.vn/"
+URL_MINHCHAU = "https://giavang.org/trong-nuoc/bao-tin-minh-chau/"
 URL_SILVER = "https://giabac.net/"  # Hoặc trang web bạc bạn đang theo dõi
 
 # ================== HTTP SESSION & RETRY CONFIG ==================
