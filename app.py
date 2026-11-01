@@ -127,55 +127,85 @@ def get_silver():
 # ================== STOCK FUNCTION (SSI IBOARD API) ==================
 from bs4 import BeautifulSoup
 
+from bs4 import BeautifulSoup
+
+# ================== STOCK FUNCTION (VIETSTOCK HTML PARSER) ==================
 def get_stock_price(symbol: str):
     clean_symbol = symbol.strip().upper()
-    # Endpoint API ngầm thường dùng để lấy thông tin mã cổ phiếu trên Vietstock
-    url = f"https://banggia.vietstock.vn/api/stock/getstockprice?code={clean_symbol}"
+    url = "https://banggia.vietstock.vn/bang-gia/hose"
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Referer": "https://banggia.vietstock.vn/bang-gia/hose",
-        "X-Requested-With": "XMLHttpRequest"
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Referer": "https://banggia.vietstock.vn/"
     }
 
     try:
-        res = session_http.get(url, headers=headers, timeout=12)
+        res = session_http.get(url, headers=headers, timeout=15)
         if res.status_code != 200:
-            return f"❌ Không thể kết nối đến máy chủ Vietstock cho mã `{clean_symbol}`."
+            return f"❌ Không thể tải trang bảng giá Vietstock (Mã lỗi: {res.status_code})."
         
-        data = res.json()
-        if not data:
-            return f"❌ Không tìm thấy dữ liệu cho mã `{clean_symbol}`."
+        soup = BeautifulSoup(res.text, "html.parser")
+        
+        # Tìm thẻ tr chứa mã cổ phiếu dựa vào thuộc tính data-value của mã
+        row = soup.find('tr', attrs={'data-value': clean_symbol})
+        if not row:
+            # Fallback tìm qua span nếu tr không khớp
+            sym_tag = soup.find(lambda tag: tag.name == 'span' and tag.get('data-value') == clean_symbol and 'stock-symbol-s' in tag.get('class', []))
+            if sym_tag:
+                row = sym_tag.find_parent('tr')
+                
+        if not row:
+            return f"❌ Không tìm thấy mã cổ phiếu `{clean_symbol}` trên bảng giá HOSE."
+        
+        # Lấy tên công ty từ tooltip
+        company_name = clean_symbol
+        tooltip = row.find('span', class_='tooltip-stock-name')
+        if tooltip:
+            company_name = tooltip.text.strip()
             
-        # Xử lý dữ liệu JSON trả về từ API
-        stock_data = data[0] if isinstance(data, list) and len(data) > 0 else data
+        # Tìm ID hậu tố của dòng (ví dụ: id kết thúc bằng -357)
+        row_id_elem = row.find('span', id=lambda x: x and x.startswith('lastP-'))
+        row_id = row_id_elem.get('id').split('-')[-1] if row_id_elem else None
         
-        stock_symbol = stock_data.get("Code", clean_symbol)
-        company_name = stock_data.get("CompanyName", stock_symbol)
-        
-        matched_price = float(stock_data.get("MatchPrice", stock_data.get("P", 0))) * 1000
-        change = float(stock_data.get("PriceChange", stock_data.get("C", 0))) * 1000
-        percent = float(stock_data.get("PriceChangePercent", stock_data.get("CP", 0.0)))
-        volume = float(stock_data.get("TotalVolume", stock_data.get("V", 0)))
-        
-        ceil_price = float(stock_data.get("Ceiling", stock_data.get("Ce", 0))) * 1000
-        floor_price = float(stock_data.get("Floor", stock_data.get("Fl", 0))) * 1000
-        ref_price = float(stock_data.get("RefPrice", stock_data.get("R", 0))) * 1000
+        def get_val(prefix):
+            if not row_id:
+                return 0.0
+            elem = row.find('span', id=f"{prefix}-{row_id}")
+            if elem and elem.has_attr('data-value'):
+                try:
+                    val = elem['data-value']
+                    if val == "undefined":
+                        return 0.0
+                    return float(val)
+                except:
+                    return 0.0
+            return 0.0
+
+        matched_price = get_val('lastP')
+        change = get_val('lastC')
+        percent = get_val('lastPC')
+        volume = get_val('tVol')
+        total_val = get_val('tVal')
+        ceil_price = get_val('ceilP')
+        floor_price = get_val('floorP')
+        ref_price = get_val('basicP')
+        high_price = get_val('highP')
+        low_price = get_val('lowP')
         
         icon = "🟢" if change > 0 else ("🔴" if change < 0 else "🟡")
         sign = "+" if change > 0 else ""
-        total_value = matched_price * volume
-        value_in_billion = total_value / 1_000_000_000
+        value_in_billion = total_val / 1_000_000_000 if total_val > 0 else (matched_price * volume) / 1_000_000_000
 
-        return f"""📈 *{stock_symbol}* - {company_name}
+        return f"""📈 *{clean_symbol}* - {company_name}
 💵 Giá khớp: *{matched_price:,.0f} VNĐ* ({icon} {sign}{change:,.0f} | {sign}{percent:.2f}%)
 📊 Tổng KL: {volume:,.0f} CP (~{value_in_billion:,.2f} tỷ)
-🏷 Trần/Sàn/TC: {ceil_price:,.0f} / {floor_price:,.0f} / {ref_price:,.0f}"""
+🏷 Trần/Sàn/TC: {ceil_price:,.0f} / {floor_price:,.0f} / {ref_price:,.0f}
+↕️ Cao/Thấp: {high_price:,.0f} / {low_price:,.0f}"""
 
     except Exception as err:
-        print(f"⚠️ Lỗi API Vietstock cho {clean_symbol}: {err}")
-        return f"❌ Lỗi xử lý dữ liệu cho mã `{clean_symbol}`."
+        print(f"⚠️ Lỗi phân tích HTML Vietstock cho {clean_symbol}: {err}")
+        return f"❌ Lỗi khi phân tích dữ liệu HTML cho mã `{clean_symbol}`."
 # ================== TELEGRAM HANDLERS ==================
 @bot.message_handler(commands=["start"])
 def start(message):
