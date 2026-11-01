@@ -368,73 +368,61 @@ def get_silver():
     return "\n".join(result)
 
 # ================== STOCK FUNCTION (SSI IBOARD API) ==================
-# ================== STOCK FUNCTION (VIETSTOCK API) ==================
+from bs4 import BeautifulSoup
+
+# ================== STOCK FUNCTION (VIETSTOCK HTML SCRAPING) ==================
 def get_stock_price(symbol: str):
     clean_symbol = symbol.strip().upper()
-    
-    # URL API truy vấn mã chứng khoán của Vietstock (thường dùng chung cho bảng giá HOSE/HNX)
-    url = f"https://banggia.vietstock.vn/api/stock/getstockprice?code={clean_symbol}"
+    url = "https://banggia.vietstock.vn/bang-gia/hose"
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Referer": "https://banggia.vietstock.vn/bang-gia/hose",
-        "X-Requested-With": "XMLHttpRequest"
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Referer": "https://banggia.vietstock.vn/"
     }
 
     try:
-        res = session_http.get(url, headers=headers, timeout=12)
+        res = session_http.get(url, headers=headers, timeout=15)
         if res.status_code != 200:
-            return f"❌ Không thể kết nối đến máy chủ Vietstock cho mã `{clean_symbol}`."
+            return f"❌ Không thể tải trang bảng giá Vietstock (Mã lỗi: {res.status_code})."
         
-        data = res.json()
+        soup = BeautifulSoup(res.text, "html.parser")
         
-        # Kiểm tra dữ liệu trả về từ Vietstock (tùy cấu trúc JSON thực tế của API)
-        # Nếu data trả về là một list hoặc dict chứa thông tin mã
-        if isinstance(data, list) and len(data) > 0:
-            stock_data = data[0]
-        elif isinstance(data, dict) and "data" in data:
-            stock_data = data["data"]
-            if isinstance(stock_data, list) and len(stock_data) > 0:
-                stock_data = stock_data.items() if hasattr(stock_data, 'items') else stock_data[0]
-        else:
-            stock_data = data
+        # Tìm thẻ chứa mã cổ phiếu dựa theo thuộc tính data-value="MÃ" mà bạn cung cấp
+        sym_tag = soup.find(lambda tag: tag.name == 'span' and tag.get('data-value') == clean_symbol)
+        
+        if not sym_tag:
+            return f"❌ Không tìm thấy mã cổ phiếu `{clean_symbol}` trên bảng giá HOSE."
+        
+        # Tìm dòng (tr) chứa mã cổ phiếu đó để lấy toàn bộ dữ liệu hàng ngang
+        row = sym_tag.find_parent('tr')
+        if not row:
+            return f"❌ Tìm thấy mã `{clean_symbol}` nhưng không đọc được dòng dữ liệu."
+            
+        # Lấy tên công ty từ tooltip nếu có
+        company_name = clean_symbol
+        tooltip = row.find('span', class_='tooltip-stock-name')
+        if tooltip:
+            company_name = tooltip.text.strip()
 
-        # Ánh xạ các trường dữ liệu phổ biến từ Vietstock API (hoặc fallback an toàn)
-        stock_symbol = stock_data.get("Code", clean_symbol)
-        company_name = stock_data.get("CompanyName", "Halcom Việt Nam" if clean_symbol == "HID" else stock_symbol)
+        # Lấy tất cả các ô (td) trong dòng của mã cổ phiếu đó
+        cols = row.find_all('td')
         
-        # Vietstock thường trả về giá theo đơn vị nghìn hoặc đồng, cần chia/nhân tùy theo dữ liệu thực tế
-        matched_price = float(stock_data.get("MatchPrice", stock_data.get("P", 0))) * 1000
-        change = float(stock_data.get("PriceChange", stock_data.get("C", 0))) * 1000
-        percent = float(stock_data.get("PriceChangePercent", stock_data.get("CP", 0.0)))
-        volume = float(stock_data.get("TotalVolume", stock_data.get("V", 0)))
+        # Tùy thuộc vào cấu trúc bảng giá Vietstock, các cột thường bao gồm: 
+        # Mã, Giá trần, Sàn, TC, Giá khớp, KL khớp, Thay đổi, ...
+        # Dưới đây ta trích xuất an toàn theo nội dung text của các cột tìm được
+        col_texts = [col.text.strip() for col in cols]
         
-        ceil_price = float(stock_data.get("Ceiling", stock_data.get("Ce", 0))) * 1000
-        floor_price = float(stock_data.get("Floor", stock_data.get("Fl", 0))) * 1000
-        ref_price = float(stock_data.get("RefPrice", stock_data.get("R", 0))) * 1000
-        high_price = float(stock_data.get("Highest", stock_data.get("Hi", 0))) * 1000
-        low_price = float(stock_data.get("Lowest", stock_data.get("Lo", 0))) * 1000
-        
-        foreign_buy = float(stock_data.get("BuyForeignQtty", 0))
-        foreign_sell = float(stock_data.get("SellForeignQtty", 0))
-        session_status = stock_data.get("Session", "N/A")
+        # Fallback dữ liệu hiển thị cơ bản từ text của dòng nếu không khớp vị trí tuyệt đối
+        return f"""📈 *{clean_symbol}* - {company_name}
+📊 Dữ liệu thô từ bảng giá:
+{", ".join(col_texts[:10])}
 
-        icon = "🟢" if change > 0 else ("🔴" if change < 0 else "🟡")
-        sign = "+" if change > 0 else ""
-        total_value = matched_price * volume
-        value_in_billion = total_value / 1_000_000_000
-
-        return f"""📈 *{stock_symbol}* - {company_name}
-💵 Giá khớp: *{matched_price:,.0f} VNĐ* ({icon} {sign}{change:,.0f} | {sign}{percent:.2f}%)
-📊 Tổng KL: {volume:,.0f} CP (~{value_in_billion:,.2f} tỷ)
-🏷 Trần/Sàn/TC: {ceil_price:,.0f} / {floor_price:,.0f} / {ref_price:,.0f}
-↕️ Cao/Thấp: {high_price:,.0f} / {low_price:,.0f} (Phiên: {session_status})
-🌐 Khối ngoại: Mua {foreign_buy:,.0f} | Bán {foreign_sell:,.0f} CP"""
+*(Lưu ý: Bảng giá Vietstock tải dữ liệu động qua WebSocket/JavaScript nên một số giá trị chi tiết khớp lệnh trực tiếp có thể cần kết nối WebSocket chuyên sâu).*"""
 
     except Exception as err:
-        print(f"⚠️ Lỗi lấy dữ liệu Vietstock cho {clean_symbol}: {err}")
-        return f"❌ Không tìm thấy dữ liệu hoặc lỗi phân giải mã `{clean_symbol}` trên Vietstock."
+        print(f"⚠️ Lỗi cào HTML Vietstock cho {clean_symbol}: {err}")
+        return f"❌ Lỗi khi phân tích HTML cho mã `{clean_symbol}`."
 
 # ================== TELEGRAM HANDLERS ==================
 @bot.message_handler(commands=["start"])
