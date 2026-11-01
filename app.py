@@ -317,22 +317,32 @@ def get_minhchau():
         return "❌ Không thể lấy dữ liệu Bảo Tín Minh Châu"
     
     soup = BeautifulSoup(html, "html.parser")
-    # Lấy dữ liệu từ bảng giá vàng trên trang chủ BTMC
-    table = soup.find("table", id="tb-gold-price") or soup.find("table", class_="table-gold")
-    if not table:
-        return "💎 Bảo Tín Minh Châu:\nTham khảo trực tiếp tại btmc.vn"
+    
+    # Tìm các ô chứa giá mua vào và bán ra dựa theo cấu trúc HTML bạn gửi
+    buy_box = soup.find(lambda tag: tag.name == 'span' and 'Mua vào' in tag.text)
+    sell_box = soup.find(lambda tag: tag.name == 'span' and 'Bán ra' in tag.text)
+    
+    buy_price = "N/A"
+    sell_price = "N/A"
+    
+    if buy_box:
+        parent_div = buy_box.find_parent('div', class_='box-cgre')
+        if parent_div:
+            price_span = parent_div.find('span', class_='gold-price')
+            if price_span:
+                # Lấy số tiền và loại bỏ khoảng trắng thừa
+                buy_price = price_span.contents[0].strip()
+                
+    if sell_box:
+        parent_div = sell_box.find_parent('div', class_='box-cred')
+        if parent_div:
+            price_span = parent_div.find('span', class_='gold-price')
+            if price_span:
+                sell_price = price_span.contents[0].strip()
 
-    result = ["💎 Bảo Tín Minh Châu:"]
-    rows = table.find_all("tr")[1:]
-    for row in rows[:5]:  # Lấy 5 dòng đầu
-        cols = row.find_all("td")
-        if len(cols) >= 3:
-            name = cols[0].text.strip()
-            buy = cols[1].text.strip()
-            sell = cols[2].text.strip()
-            result.append(f"• {name}\n  Mua: {buy} | Bán: {sell}")
-
-    return "\n".join(result)
+    return f"""💎 Bảo Tín Minh Châu:
+- Mua vào: {buy_price}k/lượng
+- Bán ra: {sell_price}k/lượng"""
 
 def get_silver():
     html = fetch_html(URL_SILVER)
