@@ -127,39 +127,55 @@ def get_silver():
 # ================== STOCK FUNCTION (SSI IBOARD API) ==================
 from bs4 import BeautifulSoup
 
-# ================== STOCK FUNCTION (VIETSTOCK HTML SCRAPING) ==================
-# ================== STOCK FUNCTION (TEST SHOW HTML) ==================
 def get_stock_price(symbol: str):
     clean_symbol = symbol.strip().upper()
-    url = "https://banggia.vietstock.vn/bang-gia/hose"
+    # Endpoint API ngầm thường dùng để lấy thông tin mã cổ phiếu trên Vietstock
+    url = f"https://banggia.vietstock.vn/api/stock/getstockprice?code={clean_symbol}"
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Referer": "https://banggia.vietstock.vn/"
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://banggia.vietstock.vn/bang-gia/hose",
+        "X-Requested-With": "XMLHttpRequest"
     }
 
     try:
-        res = session_http.get(url, headers=headers, timeout=15)
+        res = session_http.get(url, headers=headers, timeout=12)
         if res.status_code != 200:
-            return f"❌ Không thể tải trang bảng giá Vietstock (Mã lỗi: {res.status_code})."
+            return f"❌ Không thể kết nối đến máy chủ Vietstock cho mã `{clean_symbol}`."
         
-        html_content = res.text
+        data = res.json()
+        if not data:
+            return f"❌ Không tìm thấy dữ liệu cho mã `{clean_symbol}`."
+            
+        # Xử lý dữ liệu JSON trả về từ API
+        stock_data = data[0] if isinstance(data, list) and len(data) > 0 else data
         
-        # Telegram giới hạn 4096 ký tự cho mỗi tin nhắn, ta lấy 3000 ký tự đầu để test
-        snippet = html_content[:3000]
+        stock_symbol = stock_data.get("Code", clean_symbol)
+        company_name = stock_data.get("CompanyName", stock_symbol)
         
-        return f"""🔍 *DEBUG HTML (Từ khóa: `{clean_symbol}`)*
-- Status Code: `{res.status_code}`
-- Tổng độ dài HTML: `{len(html_content)}` ký tự
-- Nội dung trích xuất (3000 ký tự đầu):
+        matched_price = float(stock_data.get("MatchPrice", stock_data.get("P", 0))) * 1000
+        change = float(stock_data.get("PriceChange", stock_data.get("C", 0))) * 1000
+        percent = float(stock_data.get("PriceChangePercent", stock_data.get("CP", 0.0)))
+        volume = float(stock_data.get("TotalVolume", stock_data.get("V", 0)))
+        
+        ceil_price = float(stock_data.get("Ceiling", stock_data.get("Ce", 0))) * 1000
+        floor_price = float(stock_data.get("Floor", stock_data.get("Fl", 0))) * 1000
+        ref_price = float(stock_data.get("RefPrice", stock_data.get("R", 0))) * 1000
+        
+        icon = "🟢" if change > 0 else ("🔴" if change < 0 else "🟡")
+        sign = "+" if change > 0 else ""
+        total_value = matched_price * volume
+        value_in_billion = total_value / 1_000_000_000
 
-{snippet}"""
+        return f"""📈 *{stock_symbol}* - {company_name}
+💵 Giá khớp: *{matched_price:,.0f} VNĐ* ({icon} {sign}{change:,.0f} | {sign}{percent:.2f}%)
+📊 Tổng KL: {volume:,.0f} CP (~{value_in_billion:,.2f} tỷ)
+🏷 Trần/Sàn/TC: {ceil_price:,.0f} / {floor_price:,.0f} / {ref_price:,.0f}"""
 
     except Exception as err:
-        print(f"⚠️ Lỗi kết nối Vietstock: {err}")
-        return f"❌ Lỗi khi cào dữ liệu: {err}"
-
+        print(f"⚠️ Lỗi API Vietstock cho {clean_symbol}: {err}")
+        return f"❌ Lỗi xử lý dữ liệu cho mã `{clean_symbol}`."
 # ================== TELEGRAM HANDLERS ==================
 @bot.message_handler(commands=["start"])
 def start(message):
